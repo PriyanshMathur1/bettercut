@@ -210,7 +210,7 @@ def call(user_id: str, name: str, args: dict, base: str) -> str:
     if name == "render":
         cfg = settings()
         quality = args.get("quality") or "draft"
-        aspects = [a for a in (args.get("aspects") or ["9x16"]) if a in ASPECTS] or ["9x16"]
+        aspects = [a for a in (args.get("aspects") or []) if a in ASPECTS] or ["native"]  # native: the project's own shape
         if quality not in QUALITIES:
             raise Refused("quality must be draft or high")
         with db.session() as s:

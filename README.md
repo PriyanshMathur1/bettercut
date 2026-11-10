@@ -27,11 +27,12 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **Add clips later.** Append more footage to a reel you have already edited; only the new clips are transcribed.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.
-- **Any shape.** Render 9:16, 4:5, 1:1 and 16:9 from one edit. Export SRT, VTT and an FCPXML timeline.
+- **Any shape, any frame rate.** A video keeps the shape and frame rate of its footage: landscape clips make a 16:9 video, vertical clips a 9:16 reel, 24 fps stays 24 fps. Or pick the shape when you create it. Render 9:16, 4:5, 1:1 and 16:9 from one edit. Export SRT, VTT and an FCPXML timeline.
 - **Works without a voice.** Clips with no speech (b-roll, music, screen recordings) become reels too.
 - **Mimic.** Point it at a reference reel and it builds a matching look.
 - **Edit from Claude or ChatGPT, with no API key.** BetterCut is an MCP connector: your AI app calls its editing tools and the open editor updates live.
 - **Remembers you.** Spellings, style rules and defaults carry over to every new reel. The AI can only suggest a memory; you approve it.
+- **One editor, laid out like the tools editors know.** A media bin with thumbnails on the left, the preview with timecode and frame-by-frame transport in the middle, an inspector for whatever you select on the right, and a timeline with track labels, a select tool and a razor.
 - **Runs on your machine.** Speech recognition is local. Your footage is not uploaded anywhere.
 
 ## Quick start

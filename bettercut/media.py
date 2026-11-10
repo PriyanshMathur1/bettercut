@@ -89,7 +89,9 @@ def find_clips(paths: list[str], newest: int | None = None) -> list[Path]:
 
 
 def assemble(clips: list[Path], out: Path, width: int = 1080, height: int = 1920, fps: int = 30, stabilize: bool = False) -> dict:
-    """Normalise clips to one constant-frame-rate 9:16 source (cover-crop), concatenated in order.
+    """Normalise clips to one constant-frame-rate source of the given size (cover-crop), concatenated in order.
+
+    A clip wider than the frame is cropped around the speaker's face; a taller one is cropped at its centre.
 
     Returns the clip map: where each original clip starts in the assembled source.
     """
@@ -103,7 +105,7 @@ def assemble(clips: list[Path], out: Path, width: int = 1080, height: int = 1920
         inputs += ["-i", str(c)]
         crop = f"crop={width}:{height}"
         if info["width"] and info["height"] and info["width"] / info["height"] > width / height + 0.05:
-            # wider than 9:16: crop around the speaker's face instead of the centre (auto-reframe)
+            # wider than the frame: crop around the speaker's face instead of the centre (auto-reframe)
             fx = face_x(c, info["duration"])
             if fx is not None:
                 sw = info["width"] * height / info["height"]

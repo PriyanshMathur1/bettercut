@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from . import catalog as cat
 from . import media, pipeline, render
+from . import shape as shapes
 from .media import COMPOSER, VIDEO_EXT
 from .spec import BRAND_FILE, USER_DIR, apply_look, list_looks, load_brand, validate
 
@@ -140,7 +141,10 @@ async def create_project(
     cutout: bool = Form(False),
     hook: str | None = Form(None),
     model: str = Form("small"),
+    shape: str = Form("auto"),
 ):
+    if shape != shapes.AUTO and shape not in shapes.SHAPES:
+        raise HTTPException(400, "unknown shape")
     pid = _slug(name)
     base = pid
     i = 2
@@ -164,7 +168,7 @@ async def create_project(
         raise HTTPException(400, "upload at least one video file")
 
     def work(job, log):
-        kw = {"names": [n.strip() for n in names.split(",") if n.strip()], "cutout": cutout, "model": model, "log": log}
+        kw = {"names": [n.strip() for n in names.split(",") if n.strip()], "cutout": cutout, "model": model, "shape": shape, "log": log}
         if hook is not None:
             kw["hook"] = hook
         pipeline.make(proj, saved, look=look, **kw)
@@ -206,7 +210,7 @@ def get_spec(pid: str):
     if not (proj / "spec.json").exists():
         raise HTTPException(409, "still processing")
     spec = pipeline.load(proj)
-    return {"spec": spec, "issues": validate(spec)}
+    return {"spec": spec, "issues": validate(spec), "clips": pipeline.clip_list(proj)}
 
 
 @app.put("/api/projects/{pid}/spec")
@@ -260,7 +264,7 @@ async def start_render(pid: str, req: Request):
     proj = _proj(pid)
     body = await req.json() if (await req.body()) else {}
     quality = body.get("quality", "high")
-    aspects = body.get("aspects") or ["9x16"]
+    aspects = shapes.aspects_for(pipeline.load(proj), body.get("aspects"))
 
     def work(job, log):
         from .export import write_all
@@ -270,7 +274,7 @@ async def start_render(pid: str, req: Request):
         report = {}
         for n, asp in enumerate(aspects):
             spec = pipeline.load(proj)
-            tag = "" if asp == "9x16" else f"-{asp}"
+            tag = shapes.tag(spec, asp)
             dst = proj / "renders" / f"{pid}-v{v}{tag}{'.mov' if quality == 'master' else '.mp4'}"
             log(f"rendering {dst.name} ({quality})")
             render.render(spec, proj, dst, quality=quality, log=log, aspect=asp,

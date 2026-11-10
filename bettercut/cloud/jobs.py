@@ -150,7 +150,7 @@ def h_make(ctx: Ctx) -> dict:
     if p.get("hook") is not None:
         kw["hook"] = p["hook"]
     ctx.progress(0.05)
-    pipeline.make(proj, files, look=p.get("look", "bold-pop"), **kw)
+    pipeline.make(proj, files, look=p.get("look", "bold-pop"), shape=p.get("shape") or "auto", **kw)
     ctx.progress(0.9)
     spec = pipeline.load(proj)
     with db.session() as s:
@@ -184,15 +184,17 @@ def h_render(ctx: Ctx) -> dict:
 
     started = time.time()
     quality = ctx.params.get("quality", "high")
-    aspects = ctx.params.get("aspects") or ["9x16"]
+    from .. import shape as shapes
+
     spec, proj = checkout(ctx.user_id, ctx.project_id)
+    aspects = shapes.aspects_for(spec, ctx.params.get("aspects"))
     with db.session() as s:
         title = s.get(db.Project, ctx.project_id).title
     stem = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "reel"
     v = next_render_version(ctx.project_id)
     out_names, report = [], {}
     for n, asp in enumerate(aspects):
-        tag = "" if asp == "9x16" else f"-{asp}"
+        tag = shapes.tag(spec, asp)
         dst = proj / "renders" / f"{stem}-v{v}{tag}{'.mov' if quality == 'master' else '.mp4'}"
         ctx.log(f"rendering {dst.name} ({quality})")
         render.render(pipeline.load(proj), proj, dst, quality=quality, log=ctx.log, aspect=asp,

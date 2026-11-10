@@ -320,8 +320,11 @@ async def create_project(
     names: str = Form(""),
     cutout: bool = Form(False),
     hook: str | None = Form(None),
+    shape: str = Form("auto"),
     me: Caller = Depends(caller),
 ):
+    if shape != "auto" and shape not in ASPECTS:
+        raise HTTPException(400, "unknown shape")
     cfg = settings()
     with db.session() as s:
         if s.scalar(select(func.count()).select_from(db.Project).where(db.Project.user_id == me.id)) >= cfg.max_projects:
@@ -354,7 +357,7 @@ async def create_project(
             s.execute(delete(db.Project).where(db.Project.id == pid))
         raise
     jid = jobs.enqueue(me.id, pid, "make", {"files": saved, "look": look, "names": [n.strip() for n in names.split(",") if n.strip()],
-                                             "cutout": cutout, "hook": hook})
+                                             "cutout": cutout, "hook": hook, "shape": shape})
     return {"project": pid, "job": jid}
 
 
@@ -511,7 +514,7 @@ def _enqueue_for(pid: str, me: Caller, kind: str, params: dict) -> dict:
 async def start_render(pid: str, req: Request, me: Caller = Depends(caller)):
     body = await req.json() if (await req.body()) else {}
     quality = body.get("quality", "high")
-    aspects = [a for a in (body.get("aspects") or ["9x16"]) if a in ASPECTS] or ["9x16"]
+    aspects = [a for a in (body.get("aspects") or []) if a in ASPECTS] or ["native"]  # native: the project's own shape
     if quality not in QUALITIES:
         raise HTTPException(400, "unknown quality")
     cfg = settings()

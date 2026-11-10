@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from . import autocut, enrich, media
+from . import autocut, enrich, media, shape as shapes
 from .spec import build_spec, load_brand
 
 Log = Callable[[str], None]
@@ -40,8 +40,12 @@ def make(
     reframe: bool = True,
     stabilize: bool = False,
     align: bool = True,
+    shape: str = "auto",
+    fps: float | str = "auto",
     log: Log = print,
 ) -> dict:
+    """Make a project from raw clips. `shape` is "auto" (follow the first clip) or a shape id such as
+    "9x16" or "16x9"; `fps` is "auto" (follow the first clip) or a frame rate."""
     P = project_paths(project)
     for k in ("assets", "work", "renders"):
         P[k].mkdir(parents=True, exist_ok=True)
@@ -50,10 +54,13 @@ def make(
     if not files and not P["source"].exists():
         raise FileNotFoundError("no video clips found in: " + ", ".join(clips))
     if files:
-        log(f"assembling {len(files)} clip(s) -> 9:16 30fps")
-        info = media.assemble(files, P["source"], stabilize=stabilize)
+        sid, width, height, rate = shapes.resolve(shape, fps, media.probe(files[0]))
+        log(f"assembling {len(files)} clip(s) -> {sid.replace('x', ':')} {rate}fps")
+        info = media.assemble(files, P["source"], width=width, height=height, fps=rate, stabilize=stabilize)
         (P["work"] / "clips.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     info = media.probe(P["source"])
+    # re-running on an existing project keeps the footage as it was assembled
+    width, height, rate = info.get("width") or 1080, info.get("height") or 1920, shapes.pick_rate(info.get("fps") or 30)
 
     if P["words"].exists() and not files:
         words = json.loads(P["words"].read_text(encoding="utf-8"))
@@ -96,11 +103,12 @@ def make(
         matte = str(P["matte"])
 
     hook_text = enrich.hook_text(words) if hook is None else hook
-    source = {"src": str(P["source"]), "width": 1080, "height": 1920, "duration": info["duration"], "fps": 30}
+    source = {"src": str(P["source"]), "width": width, "height": height, "duration": info["duration"], "fps": rate}
     if matte:
         source["matte"] = matte
     brand = load_brand(brand_file)
     spec = build_spec(source, words, segments, look=look, brand=brand, hook=hook_text, title=project.name)
+    spec.update({"width": width, "height": height, "fps": rate})  # the project plays in its footage's shape and rate
     P["spec"].write_text(json.dumps(spec, indent=2), encoding="utf-8")
     log(f"spec written: {P['spec']}")
     return spec
@@ -134,7 +142,8 @@ def add_clips(
 
     log(f"adding {len(files)} clip(s)")
     add = P["work"] / "add.mp4"
-    info = media.assemble(files, add)
+    src = spec["source"]  # new footage is fitted to the project's own shape and frame rate
+    info = media.assemble(files, add, width=int(src.get("width") or 1080), height=int(src.get("height") or 1920), fps=int(round(src.get("fps") or 30)))
     # a new file name, so players and caches never show the old footage under the same address
     new_src = P["assets"] / f"source-{int(time.time())}.mp4"
     media.concat([old_src, add], new_src)
@@ -190,6 +199,18 @@ def add_clips(
     save(project, spec)
     log(f"added {len(segments)} shot(s), {len(words)} word(s); the reel's footage is now {total:.1f}s")
     return spec
+
+
+def clip_list(project: Path) -> list[dict]:
+    """The clips a project's footage was assembled from: name, where each starts in the footage, and its length."""
+    f = project_paths(project)["work"] / "clips.json"
+    if not f.exists():
+        return []
+    try:
+        clips = json.loads(f.read_text(encoding="utf-8")).get("clips", [])
+    except (ValueError, AttributeError):
+        return []
+    return [{"name": c.get("clip") or Path(str(c.get("path", "clip"))).name, "start": float(c.get("start", 0)), "seconds": float(c.get("duration", 0))} for c in clips]
 
 
 def load(project: Path) -> dict:

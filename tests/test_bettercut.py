@@ -389,7 +389,7 @@ def test_a_clip_with_no_speech_becomes_a_whole_clip_reel(tmp_path, monkeypatch):
 
     src = tmp_path / "p" / "assets" / "source.mp4"
     monkeypatch.setattr(media, "find_clips", lambda clips, newest=None: ["clip.mp4"])
-    monkeypatch.setattr(media, "assemble", lambda files, out, stabilize=False: (out.parent.mkdir(parents=True, exist_ok=True), out.write_bytes(b"x"), [])[2])
+    monkeypatch.setattr(media, "assemble", lambda files, out, stabilize=False, **kw: (out.parent.mkdir(parents=True, exist_ok=True), out.write_bytes(b"x"), [])[2])
     monkeypatch.setattr(media, "probe", lambda p: {"duration": 13.5, "width": 1080, "height": 1920})
     monkeypatch.setattr(media, "transcribe", lambda *a, **k: [])
     monkeypatch.setattr(media, "speech_gaps", lambda p: [(0.0, 13.5)])
@@ -424,7 +424,8 @@ def _fake_media(monkeypatch, tmp_path, new_words, add_len=6.0, old_len=10.0):
     """Stand-ins for ffmpeg and whisper so add_clips runs in milliseconds."""
     from bettercut import media
 
-    def assemble(files, out, stabilize=False):
+    def assemble(files, out, stabilize=False, **size):
+        _fake_media.sizes.append(size)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"add")
         return {"clips": [{"clip": "new.mp4", "path": "new.mp4", "start": 0.0, "duration": add_len}], "duration": add_len}
@@ -433,6 +434,7 @@ def _fake_media(monkeypatch, tmp_path, new_words, add_len=6.0, old_len=10.0):
         out.write_bytes(b"joined")
         return out
 
+    _fake_media.sizes = []  # the frame size and rate each assemble call was asked for
     monkeypatch.setattr(media, "find_clips", lambda clips, newest=None: ["new.mp4"])
     monkeypatch.setattr(media, "assemble", assemble)
     monkeypatch.setattr(media, "concat", concat)
@@ -470,6 +472,8 @@ def test_add_clips_appends_footage_and_keeps_every_existing_edit(tmp_path, monke
     assert len({s["id"] for s in spec["segments"]}) == len(spec["segments"])
     assert [(w["text"], w["start"]) for w in spec["words"][1:]] == [("New", 10.5), ("part.", 11.0)]
     assert spec["source"]["duration"] == 16.0
+    src = before["source"]  # added footage is fitted to the project's own shape and rate
+    assert _fake_media.sizes == [{"width": src.get("width") or 1080, "height": src.get("height") or 1920, "fps": int(src.get("fps") or 30)}]
     assert spec["source"]["src"] != before["source"]["src"] and Path(spec["source"]["src"]).exists()
     assert Path(before["source"]["src"]).exists()  # kept, so Undo still has footage to show
     assert "graded" not in spec["source"] and "baked" not in spec["grade"]  # must be re-baked from the new footage
@@ -620,3 +624,99 @@ def test_browser_recordings_with_no_length_are_repaired(tmp_path):
     size = rec.stat().st_size
     media.fix_recording(rec)  # already has a length: left alone
     assert rec.stat().st_size == size and not list(tmp_path.glob("*.fixed*"))
+
+
+# ---- shape and frame rate: a project follows its footage ----
+
+def test_shape_follows_the_footage():
+    from bettercut import shape
+
+    assert shape.nearest(3840, 2160) == "16x9"
+    assert shape.nearest(1080, 1920) == "9x16"
+    assert shape.nearest(1000, 1000) == "1x1"
+    assert shape.nearest(1080, 1350) == "4x5"
+    assert shape.nearest(2560, 1080) == "16x9"  # ultrawide: the nearest standard shape
+    assert shape.nearest(0, 0) == "9x16"  # unknown size
+
+
+def test_frame_rate_follows_the_footage():
+    from bettercut import shape
+
+    assert [shape.pick_rate(f) for f in (23.976, 24, 25, 29.97, 30, 50, 59.94, 60)] == [24, 24, 25, 30, 30, 50, 60, 60]
+    assert shape.pick_rate(0) == 30 and shape.pick_rate(120) == 60
+
+
+def test_resolve_auto_or_a_chosen_shape():
+    import pytest
+    from bettercut import shape
+
+    clip = {"width": 3840, "height": 2160, "fps": 23.976}
+    assert shape.resolve("auto", "auto", clip) == ("16x9", 1920, 1080, 24)
+    assert shape.resolve("9x16", 30, clip) == ("9x16", 1080, 1920, 30)  # a reel from landscape footage
+    assert shape.resolve(None, None, {}) == ("9x16", 1080, 1920, 30)
+    with pytest.raises(ValueError):
+        shape.resolve("21x9", "auto", clip)
+
+
+def test_renders_default_to_the_projects_own_shape():
+    from bettercut import shape
+
+    wide = {"width": 1920, "height": 1080}
+    old = {}  # a reel made before shapes existed
+    assert shape.native(wide) == "16x9" and shape.native(old) == "9x16"
+    assert shape.aspects_for(wide, None) == ["16x9"]
+    assert shape.aspects_for(wide, ["native", "9x16", "16x9", "bogus"]) == ["16x9", "9x16"]
+    assert shape.aspects_for(old, []) == ["9x16"]
+    assert shape.tag(wide, "16x9") == "" and shape.tag(wide, "9x16") == "-9x16"
+    assert shape.tag(old, "9x16") == "" and shape.tag(old, "16x9") == "-16x9"
+
+
+def _fake_make(monkeypatch, probe):
+    from bettercut import media
+
+    asked = {}
+
+    def assemble(files, out, stabilize=False, **size):
+        asked.update(size)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return {}
+
+    def fake_probe(p):
+        if str(p).endswith("source.mp4"):  # the assembled footage has the size it was asked for
+            return {"duration": 8.0, "width": asked["width"], "height": asked["height"], "fps": asked["fps"]}
+        return {"duration": 8.0, **probe}
+
+    monkeypatch.setattr(media, "find_clips", lambda clips, newest=None: ["clip.mp4"])
+    monkeypatch.setattr(media, "assemble", assemble)
+    monkeypatch.setattr(media, "probe", fake_probe)
+    monkeypatch.setattr(media, "transcribe", lambda *a, **k: [])
+    monkeypatch.setattr(media, "speech_gaps", lambda p: [(0.0, 8.0)])
+    return asked
+
+
+def test_landscape_footage_makes_a_landscape_project(tmp_path, monkeypatch):
+    from bettercut import pipeline
+
+    asked = _fake_make(monkeypatch, {"width": 3840, "height": 2160, "fps": 25.0})
+    spec = pipeline.make(tmp_path / "p", ["clip.mp4"], reframe=False, log=lambda m: None)
+    assert asked == {"width": 1920, "height": 1080, "fps": 25}
+    assert (spec["width"], spec["height"], spec["fps"]) == (1920, 1080, 25)
+    assert (spec["source"]["width"], spec["source"]["height"], spec["source"]["fps"]) == (1920, 1080, 25)
+
+
+def test_a_chosen_shape_overrides_the_footage(tmp_path, monkeypatch):
+    from bettercut import pipeline
+
+    asked = _fake_make(monkeypatch, {"width": 3840, "height": 2160, "fps": 59.94})
+    spec = pipeline.make(tmp_path / "p", ["clip.mp4"], reframe=False, shape="9x16", fps=30, log=lambda m: None)
+    assert asked == {"width": 1080, "height": 1920, "fps": 30}
+    assert (spec["width"], spec["height"], spec["fps"]) == (1080, 1920, 30)
+
+
+def test_vertical_footage_still_makes_a_reel(tmp_path, monkeypatch):
+    from bettercut import pipeline
+
+    _fake_make(monkeypatch, {"width": 1080, "height": 1920, "fps": 30.0})
+    spec = pipeline.make(tmp_path / "p", ["clip.mp4"], reframe=False, log=lambda m: None)
+    assert (spec["width"], spec["height"], spec["fps"]) == (1080, 1920, 30)

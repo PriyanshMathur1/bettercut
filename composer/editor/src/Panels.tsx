@@ -7,8 +7,8 @@ import { api, watchJob, type Catalog, type Job } from "./api";
 
 type Update = (fn: (s: ReelSpec) => ReelSpec) => void;
 
-export const TABS = ["Looks", "Captions", "Format", "Motion", "Titles", "Colour", "Overlays", "B-roll", "Audio", "Brand", "Mimic"] as const;
-export type Tab = (typeof TABS)[number];
+export { TABS, type Tab } from "./workspace"; // the list lives with the workspaces so Simple's rail can be checked against it
+import type { Tab } from "./workspace";
 
 interface PanelProps {
   tab: Tab;
