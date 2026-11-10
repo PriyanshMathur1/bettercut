@@ -109,6 +109,27 @@ async function j<T>(r: Response): Promise<T> {
   return r.json();
 }
 
+export interface ReviewComment {
+  id: string;
+  name: string;
+  text: string;
+  /** Seconds into the render it was left on. */
+  at: number;
+  /** The spot on the picture (fractions), or null for the whole frame. */
+  x: number | null;
+  y: number | null;
+  /** The render's file name. */
+  version: string;
+  created: number;
+  done: boolean;
+}
+export interface ReviewInfo {
+  token: string | null;
+  comments: ReviewComment[];
+  render: string | null;
+  path?: string;
+}
+
 export type ConnectorLink = { on: boolean; url: string; lastUsed: number | null };
 
 export const api = {
@@ -157,6 +178,12 @@ export const api = {
     files.forEach((x) => f.append("files", x));
     return af(`/api/projects/${pid}/angles`, { method: "POST", body: f }).then((r) => j<{ job: string }>(r));
   },
+  review: (pid: string) => af(`/api/projects/${pid}/review`).then((r) => j<ReviewInfo>(r)),
+  shareReview: (pid: string) => af(`/api/projects/${pid}/review`, { method: "POST" }).then((r) => j<ReviewInfo>(r)),
+  stopReview: (pid: string) => af(`/api/projects/${pid}/review`, { method: "DELETE" }).then((r) => j<ReviewInfo>(r)),
+  markComment: (pid: string, cid: string, done: boolean) =>
+    af(`/api/projects/${pid}/review/comments/${cid}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ done }) }).then((r) => j<ReviewInfo>(r)),
+  deleteComment: (pid: string, cid: string) => af(`/api/projects/${pid}/review/comments/${cid}`, { method: "DELETE" }).then((r) => j<ReviewInfo>(r)),
   autoZoom: (pid: string) => af(`/api/projects/${pid}/autozoom`, { method: "POST" }).then((r) => j<{ job: string }>(r)),
   autoCams: (pid: string) => af(`/api/projects/${pid}/autocam`, { method: "POST" }).then((r) => j<{ job: string }>(r)),
   bake: (pid: string) => af(`/api/projects/${pid}/bake`, { method: "POST" }).then((r) => j<{ job: string }>(r)),

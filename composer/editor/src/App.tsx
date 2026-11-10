@@ -13,6 +13,8 @@ import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layer
 import { LayerHandle } from "./LayerHandle";
 import { CamRow } from "./CamRow";
 import { ZoomRow } from "./ZoomRow";
+import { ReviewPanel } from "./ReviewPanel";
+import { newNotes } from "./review";
 import { createSaver, type SaveState } from "./saver";
 import { Guard } from "./Guard";
 import { playbackAction, SHORTCUTS, shuttle, stepFrame, typingIn } from "./keys";
@@ -999,6 +1001,14 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                       <div key={i}>{l}</div>
                     ))}
                   </div>
+                ) : null}
+                {!cloud ? (
+                  <ReviewPanel
+                    pid={pid}
+                    seek={seekOut}
+                    renderKey={current?.renders.length}
+                    onNotes={(add) => setNotes((ns) => [...ns, ...newNotes(ns, add)].sort((a, b) => (a.t ?? -1) - (b.t ?? -1)))}
+                  />
                 ) : null}
               </>
             ) : null}
