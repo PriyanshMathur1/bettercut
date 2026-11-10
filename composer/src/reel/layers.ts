@@ -5,6 +5,7 @@
 // cuts and reordering. `track` orders the picture (higher tracks are drawn on top). Position and size are
 // fractions of the frame, so one layer looks the same in every aspect ratio.
 
+import type { ClipEffect } from "./clipfx";
 import { setKey, type Key } from "./keyframes.ts"; // explicit extension: this file also runs under `node --test`
 
 export type LayerKind = "video" | "image" | "audio";
@@ -34,6 +35,8 @@ export interface Layer {
   volume?: number;
   /** Keyframes: `at` is seconds since the layer appeared; properties x, y, scale, rotate, opacity. */
   keys?: Key[];
+  /** Effects stacked on this layer, applied in order. */
+  effects?: ClipEffect[];
 }
 
 const IMAGE = /\.(png|jpe?g|webp|gif|avif|svg|bmp)$/i;

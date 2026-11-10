@@ -1,5 +1,6 @@
 import type { Key } from "./keyframes";
 import type { Layer } from "./layers";
+import type { ClipEffect } from "./clipfx";
 // ReelSpec: the single JSON document that fully describes a reel.
 // The pipeline writes it, the editor UI and Claude edit it, Remotion renders it.
 // All times are SOURCE seconds (position in the original clip) unless named `out*`,
@@ -38,6 +39,8 @@ export interface ReelSegment {
   reverse?: boolean;
   /** The reversed file for this shot and the stretch of footage it covers (written by the pipeline). */
   reversed?: { src: string; start: number; end: number; of?: string };
+  /** Effects stacked on this shot, applied in order. */
+  effects?: ClipEffect[];
   /** Camera keyframes for this shot: `at` is SOURCE seconds; properties `zoom`, `cx`, `cy`. */
   keys?: Key[];
   /** Transition into this shot (an effect id, or "none"). Unset = the reel's default cut transition. */
