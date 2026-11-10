@@ -104,7 +104,7 @@ cd composer && npm test
 
 This is a young project. What has been checked and what has not:
 
-- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 92 Python tests and 45 Node tests.
+- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 92 Python tests and 50 Node tests.
 - Not yet checked: the Docker image has not been built, hosted Google sign-in has not been run against a live Supabase
   project, and the connector has been exercised with direct calls only, not yet from Claude.ai or ChatGPT.
 

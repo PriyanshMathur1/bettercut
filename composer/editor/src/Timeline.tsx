@@ -7,7 +7,7 @@ import { effectsByFamily } from "../../src/reel/motion/effects";
 
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
-import { layerBase, layerVolume, moveTrack, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
+import { layerBase, layerVolume, moveTrack, playable, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
 import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
 const TRANSITIONS = effectsByFamily("transition");
@@ -25,6 +25,33 @@ const SHOT_FIELDS: Field[] = [
   { id: "cx", label: "Focus X", step: 0.02, min: 0, max: 1 },
   { id: "cy", label: "Focus Y", step: 0.02, min: 0, max: 1 },
 ];
+
+/**
+ * A number field you can type in freely. While it has focus it shows what you typed, even when that is
+ * empty or half a number ("0."); a value is only sent on when it is a real number, kept inside min..max.
+ */
+const NumField: React.FC<{ value: number; onChange: (v: number) => void; step: number; min?: number; max?: number; disabled?: boolean }> = ({ value, onChange, step, min, max, disabled }) => {
+  const [text, setText] = useState<string | null>(null); // what is being typed; null = show the value
+  return (
+    <input
+      type="number"
+      step={step}
+      min={min}
+      max={max}
+      disabled={disabled}
+      value={text ?? String(Number(value.toFixed(3)))}
+      onFocus={(e) => setText(e.target.value)}
+      onBlur={() => setText(null)}
+      onChange={(e) => {
+        setText(e.target.value);
+        if (e.target.value.trim() === "") return; // cleared to retype: keep the old value until there is a new one
+        const v = Number(e.target.value);
+        if (!Number.isFinite(v)) return;
+        onChange(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)));
+      }}
+    />
+  );
+};
 
 /** Keyframe controls for whatever is selected: add a keyframe at the playhead, edit its values, step between keyframes. */
 const KeyRow: React.FC<{
@@ -67,17 +94,7 @@ const KeyRow: React.FC<{
           {fields.map((f) => (
             <label key={f.id}>
               {f.label}
-              <input
-                type="number"
-                step={f.step}
-                min={f.min}
-                max={f.max}
-                value={Number(((list[i][f.id] as number | undefined) ?? now[f.id]).toFixed(3))}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (Number.isFinite(v)) onChange(setKey(list, list[i].at, { [f.id]: v }));
-                }}
-              />
+              <NumField step={f.step} min={f.min} max={f.max} value={(list[i][f.id] as number | undefined) ?? now[f.id]} onChange={(v) => onChange(setKey(list, list[i].at, { [f.id]: v }))} />
             </label>
           ))}
           <label title="How the values travel from this keyframe to the next">
@@ -102,7 +119,7 @@ const KeyRow: React.FC<{
     </div>
   );
 };
-type Extra = { kind: "overlays" | "broll" | "voiceovers" | "layers"; i: number };
+type Extra = { kind: "overlays" | "broll" | "voiceovers" | "layers"; i: number; id?: string };
 const LAYER_FIELDS: Field[] = [
   { id: "x", label: "X", step: 0.02, min: -0.5, max: 1.5 },
   { id: "y", label: "Y", step: 0.02, min: -0.5, max: 1.5 },
@@ -176,7 +193,11 @@ export const Timeline: React.FC<{
     .filter((x): x is { v: NonNullable<ReelSpec["voiceovers"]>[number]; i: number; r: { start: number; end: number } } => !!x);
   // media layers: one lane per track, the highest track at the top like the picture stacks
   const lays = (spec.layers || []).map((l, i) => ({ l, i, r: rangeToOutput(placed, l.start, l.end) })).filter((x) => x.r) as { l: Layer; i: number; r: { start: number; end: number } }[];
-  const tracks = tracksOf(spec.layers);
+  const tracks = tracksOf(lays.map((x) => x.l)); // lanes only for layers that are on the timeline
+  // layers whose whole time range sits in footage that was removed: not drawn, so they need another way out
+  const hidden = (spec.layers || []).map((_, i) => i).filter((i) => !lays.some((x) => x.i === i));
+  const allOnTrack = (track: number) => (spec.layers || []).filter((l) => l.track === track).length;
+  const allTracks = tracksOf(spec.layers);
   const layersTop = 55 + LANE + (voices.length ? LANE : 0);
   const laneHeight = layersTop + tracks.length * LANE + 1;
   const selLayer = extra?.kind === "layers" ? lays.find((x) => x.i === extra.i) : undefined;
@@ -226,9 +247,20 @@ export const Timeline: React.FC<{
     setSel(null);
   };
 
+  // The selection is an index into a list. If that list changed under it (undo, an edit from the AI,
+  // another reel), the index may now be gone or point at a different item: drop the selection.
+  const selectedItem = extra ? ((spec[extra.kind] || []) as { id?: string }[])[extra.i] : undefined;
+  const staleSelection = !!extra && (!selectedItem || (extra.id !== undefined && selectedItem.id !== extra.id));
   useEffect(() => {
-    onSelectLayer?.(extra?.kind === "layers" ? extra.i : null);
-  }, [extra?.kind, extra?.i]);
+    if (staleSelection) setExtra(null);
+  }, [staleSelection]);
+  useEffect(() => {
+    if (sel !== null && sel >= spec.segments.length) setSel(null);
+  }, [sel, spec.segments.length]);
+
+  useEffect(() => {
+    onSelectLayer?.(extra?.kind === "layers" && !staleSelection ? extra.i : null);
+  }, [extra?.kind, extra?.i, staleSelection]);
 
   // keyboard: S splits at the playhead, Delete removes the selected shot, Esc clears the selection
   const keys = useRef({ split, remove });
@@ -300,9 +332,10 @@ export const Timeline: React.FC<{
   const dragExtra = (kind: Extra["kind"], i: number, r: { start: number; end: number }) => (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    setExtra({ kind, i });
+    setExtra({ kind, i, id: ((spec[kind] || []) as { id?: string }[])[i]?.id });
     setSel(null);
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const grabbed = kind === "layers" ? (spec.layers || [])[i] : undefined; // the layer as it was when grabbed
     // a voiceover is a fixed recording: it can be moved, not stretched
     const how = kind === "voiceovers" ? "move" : e.clientX - box.left < 7 ? "start" : box.right - e.clientX < 7 ? "end" : "move";
     const perPx = duration / lane.current!.getBoundingClientRect().width; // output seconds per pixel
@@ -310,14 +343,26 @@ export const Timeline: React.FC<{
     const move = (ev: PointerEvent) => {
       const d = (ev.clientX - x0) * perPx;
       if (Math.abs(ev.clientX - x0) < 3) return; // a click, not a drag
-      const out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
+      let out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
+      // A layer's own file sets two limits, both measured in time on screen (the footage under it may be
+      // sped up, slowed or cut): its start can't be pulled back past the file's beginning, and its end
+      // can't be pushed past the file's end.
+      let from: number | undefined;
+      if (grabbed && grabbed.kind !== "image") {
+        const from0 = grabbed.from ?? 0;
+        if (how === "start") {
+          out = Math.max(out, r.start - from0);
+          from = from0 + (out - r.start); // trimming skips into the media; it doesn't restart it
+        } else if (how === "end") {
+          out = Math.min(out, r.start + playable(grabbed));
+        }
+      }
       const at = toSource(placed, out);
       update((s) => ({
         ...s,
         [kind]: ((s[kind] || []) as { start: number; end: number }[]).map((x, j) => {
           if (j !== i) return x;
-          // trimming a layer's start skips into its media; it doesn't restart it
-          if (kind === "layers" && how === "start") return trimLayerStart(x as Layer, at);
+          if (kind === "layers" && how === "start") return trimLayerStart(x as Layer, at, from);
           return placeSpan(x, how, at, kind === "voiceovers" ? Infinity : s.source.duration);
         }),
       }));
@@ -472,14 +517,14 @@ export const Timeline: React.FC<{
           <>
             <button
               onClick={() => update((s) => ({ ...s, layers: moveTrack(s.layers || [], selLayer.i, 1) }))}
-              disabled={tracks.indexOf(selLayer.l.track) === tracks.length - 1 && lays.filter((x) => x.l.track === selLayer.l.track).length === 1}
+              disabled={allTracks.indexOf(selLayer.l.track) === allTracks.length - 1 && allOnTrack(selLayer.l.track) === 1}
               title="Bring this layer forward, over the layer above it"
             >
               Forward
             </button>
             <button
               onClick={() => update((s) => ({ ...s, layers: moveTrack(s.layers || [], selLayer.i, -1) }))}
-              disabled={tracks.indexOf(selLayer.l.track) === 0 && lays.filter((x) => x.l.track === selLayer.l.track).length === 1}
+              disabled={allTracks.indexOf(selLayer.l.track) === 0 && allOnTrack(selLayer.l.track) === 1}
               title="Send this layer back, under the layer below it"
             >
               Back
@@ -556,6 +601,14 @@ export const Timeline: React.FC<{
           +
         </button>
       </div>
+      {hidden.length ? (
+        <div className="tl-keys">
+          <span className="tl-info">
+            {hidden.length === 1 ? "1 layer sits" : `${hidden.length} layers sit`} over footage you removed, so {hidden.length === 1 ? "it isn't" : "they aren't"} shown.
+          </span>
+          <button onClick={() => update((s) => ({ ...s, layers: (s.layers || []).filter((_, i) => !hidden.includes(i)) }))}>{hidden.length === 1 ? "Delete it" : "Delete them"}</button>
+        </div>
+      ) : null}
       {selLayer && selLayer.l.kind !== "audio" ? (
         <>
           <div className="tl-keys">
@@ -563,23 +616,19 @@ export const Timeline: React.FC<{
             {LAYER_FIELDS.map((f) => (
               <label key={f.id} title={selLayer.l.keys?.some((k) => typeof k[f.id] === "number") ? "Animated by keyframes: edit the keyframes below" : undefined}>
                 {f.label}
-                <input
-                  type="number"
+                <NumField
                   step={f.step}
                   min={f.min}
                   max={f.max}
                   disabled={!!selLayer.l.keys?.some((k) => typeof k[f.id] === "number")}
-                  value={Number((layerBase(selLayer.l) as Record<string, number>)[f.id].toFixed(3))}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    if (Number.isFinite(v)) setLayer({ [f.id]: v } as Partial<Layer>);
-                  }}
+                  value={(layerBase(selLayer.l) as Record<string, number>)[f.id]}
+                  onChange={(v) => setLayer({ [f.id]: v } as Partial<Layer>)}
                 />
               </label>
             ))}
             <label title="Round the corners">
               Corners
-              <input type="number" step={0.02} min={0} max={0.5} value={selLayer.l.radius ?? 0} onChange={(e) => setLayer({ radius: Number(e.target.value) || undefined })} />
+              <NumField step={0.02} min={0} max={0.5} value={selLayer.l.radius ?? 0} onChange={(v) => setLayer({ radius: v || undefined })} />
             </label>
           </div>
           <KeyRow

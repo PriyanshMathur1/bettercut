@@ -23,7 +23,7 @@ import { FORMAT_MAP, type FormatLayout } from "./formats";
 import { TranslationLine } from "./captions/TranslationLine";
 import { translationAt } from "./translate";
 import { LayerItem } from "./LayerItem";
-import { drawOrder } from "./layers";
+import { drawOrder, layerVolume, playable } from "./layers";
 import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
 import { GradeOverlay, gradeFilter, primaryApprox } from "./grade";
@@ -255,10 +255,14 @@ export const Reel: React.FC<ReelProps> = (spec) => {
         .filter((x): x is { v: NonNullable<typeof spec.voiceovers>[number]; at: number; len: number } => x.at !== null && x.len > 0),
     [spec.voiceovers, placed],
   );
-  // the music ducks under spoken words and under voiceovers alike
+  // the music ducks under spoken words, voiceovers, and any layer that makes sound
   const speech = useMemo(
-    () => [...words.map((w) => [w.outStart, w.outEnd] as [number, number]), ...voiceovers.map((x) => [x.at, x.at + x.len] as [number, number])],
-    [words, voiceovers],
+    () => [
+      ...words.map((w) => [w.outStart, w.outEnd] as [number, number]),
+      ...voiceovers.map((x) => [x.at, x.at + x.len] as [number, number]),
+      ...layers.filter(({ l }) => l.kind !== "image" && layerVolume(l) > 0).map(({ l, r }) => [r.start, Math.min(r.end, r.start + playable(l))] as [number, number]),
+    ],
+    [words, voiceovers, layers],
   );
   const musicVol = (f: number) => {
     const a = spec.audio;

@@ -9,8 +9,9 @@ import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
 import { Settings } from "./Settings";
 import { Timeline } from "./Timeline";
 import { Recorder } from "./Recorder";
-import { kindOf, newLayer, placeLayer } from "../../src/reel/layers";
+import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
+import { followPlayer, volumeToRestore } from "./preview";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -173,11 +174,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   useEffect(() => {
     if (!playerEl) return;
     try {
-      const saved = localStorage.getItem(VOLUME_KEY);
-      if (saved === null) return;
+      const v = volumeToRestore(localStorage.getItem(VOLUME_KEY));
+      if (v === null) return;
       localStorage.removeItem(VOLUME_KEY);
-      const v = Number(saved);
-      playerEl.setVolume(Number.isFinite(v) && v > 0 ? Math.min(1, v) : 1);
+      playerEl.setVolume(v);
     } catch {}
   }, [playerEl]);
 
@@ -185,10 +185,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   // order, so the listener is tied to the player instance itself, not to the reel having loaded.
   useEffect(() => {
     if (!playerEl) return;
-    setFrame(playerEl.getCurrentFrame());
-    const on = (e: { detail: { frame: number } }) => setFrame(e.detail.frame);
-    playerEl.addEventListener("frameupdate", on);
-    return () => playerEl.removeEventListener("frameupdate", on);
+    return followPlayer(playerEl, setFrame);
   }, [playerEl]);
 
   const seekOut = (t: number) => player.current?.seekTo(Math.max(0, Math.round(t * fps)));
@@ -269,8 +266,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const addMedia = async (file: File) => {
     const at = sourceNow;
     try {
+      const problem = layerProblem(file.name, file.type);
+      if (problem) throw new Error(problem);
       const r = await api.upload(pid, file);
-      const kind = kindOf(file.name, file.type ? !file.type.startsWith("audio/") : undefined);
+      const kind = kindOf(file.name, file.type);
       update((s) => ({ ...s, layers: [...(s.layers || []), newLayer(s.layers, r.path, kind, at, r.seconds || 0)] }));
     } catch (e: any) {
       setJob({ id: "", kind: "media", project: pid, status: "error", progress: 0, log: [e.message], result: null });
@@ -518,6 +517,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               ) : null}
             </div>
             <Timeline
+              key={pid} // a different reel starts with nothing selected
               spec={spec}
               placed={placed}
               duration={duration}

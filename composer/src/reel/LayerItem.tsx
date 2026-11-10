@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import { resolveAsset } from "./asset";
 import { sampleKeys } from "./keyframes";
-import { layerBase, layerVolume, type Layer } from "./layers";
+import { layerBase, layerVolume, playable, type Layer } from "./layers";
 
 /**
  * One media layer on the output timeline. `start`/`end` are OUTPUT seconds.
@@ -13,7 +13,8 @@ export const LayerItem: React.FC<{ layer: Layer; start: number; end: number }> =
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const from = Math.round(start * fps);
-  const dur = Math.max(1, Math.round(end * fps) - from);
+  // never play past the end of the layer's own file: the footage under it may be slowed, or the layer stretched
+  const dur = Math.max(1, Math.min(Math.round(end * fps) - from, Math.floor(playable(layer) * fps)));
   const trim = Math.max(0, Math.round((layer.from ?? 0) * fps));
   const volume = layerVolume(layer);
   const src = resolveAsset(layer.src);

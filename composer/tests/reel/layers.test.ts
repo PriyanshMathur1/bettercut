@@ -1,15 +1,25 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { drawOrder, kindOf, layerBase, layerVolume, moveTrack, newLayer, placeLayer, topTrack, tracksOf, trimLayerStart } from "../../src/reel/layers.ts";
+import { drawOrder, kindOf, layerBase, layerProblem, layerVolume, moveTrack, newLayer, placeLayer, playable, topTrack, tracksOf, trimLayerStart } from "../../src/reel/layers.ts";
 
 const L = (track: number, id: string, kind: "video" | "image" | "audio" = "image") => ({ id, kind, src: id + ".png", track, start: 0, end: 2 });
 
-test("kindOf reads the kind from the file name", () => {
+test("kindOf trusts the file's own type, then its name", () => {
   assert.equal(kindOf("logo.PNG"), "image");
   assert.equal(kindOf("song.mp3?sig=abc"), "audio");
   assert.equal(kindOf("clip.mp4"), "video");
-  assert.equal(kindOf("voice.webm", false), "audio"); // a webm with no picture
+  assert.equal(kindOf("voice.webm", "audio/webm"), "audio"); // sound only, despite the video-style name
+  assert.equal(kindOf("scan.bmp", "image/bmp"), "image");
+  assert.equal(kindOf("photo", "image/jpeg"), "image"); // no extension at all
+  assert.equal(kindOf("photo.heic"), "image"); // never mistaken for a video
+});
+
+test("layerProblem names image types a browser can't draw", () => {
+  assert.match(layerProblem("photo.heic", "image/heic") || "", /JPG or PNG/);
+  assert.match(layerProblem("scan.TIFF") || "", /JPG or PNG/);
+  assert.equal(layerProblem("photo.jpg", "image/jpeg"), null);
+  assert.equal(layerProblem("clip.mp4", "video/mp4"), null);
 });
 
 test("defaults: pictures are 60% wide and silent, audio plays at full volume", () => {
@@ -39,21 +49,33 @@ test("moveTrack swaps a lone layer with the next track, and splits a shared trac
   assert.deepEqual(moveTrack([L(1, "a"), L(5, "c")], 1, -1).map((l) => l.track), [2, 1]); // gaps closed
 });
 
-test("newLayer starts at the playhead on a new top track, images for 3 seconds", () => {
-  assert.deepEqual(newLayer([L(2, "x")], "a.png", "image", 1.23456, 0), { kind: "image", src: "a.png", track: 3, start: 1.235, end: 4.235 });
-  assert.equal(newLayer(undefined, "a.mp4", "video", 0, 7.5).end, 7.5);
+test("newLayer starts at the playhead on a new top track, with its own id and its file's length", () => {
+  assert.deepEqual(newLayer([L(2, "x")], "a.png", "image", 1.23456, 0), { id: "m2", kind: "image", src: "a.png", track: 3, start: 1.235, end: 4.235 });
+  const v = newLayer(undefined, "a.mp4", "video", 0, 7.5);
+  assert.deepEqual([v.end, v.media, v.id], [7.5, 7.5, "m1"]);
+  assert.equal(newLayer([{ ...L(1, "m2") }], "b.png", "image", 0, 0).id, "m3"); // never reuses an id
+  assert.equal("media" in newLayer(undefined, "a.mp4", "video", 0, 0), false); // length unknown
 });
 
-test("trimLayerStart keeps the media in place: later skips into the file, earlier reveals it again", () => {
+test("playable is what is left of the file from where the layer enters it", () => {
+  const v = { kind: "video" as const, src: "a.mp4", track: 1, start: 0, end: 9, media: 4 };
+  assert.equal(playable(v), 4);
+  assert.equal(playable({ ...v, from: 1.5 }), 2.5);
+  assert.equal(playable({ ...v, from: 9 }), 0);
+  assert.equal(playable({ ...v, media: undefined }), Infinity); // unknown: no limit
+  assert.equal(playable({ ...v, kind: "image" as const }), Infinity);
+});
+
+test("trimLayerStart sets the new start and where the file is entered", () => {
   const v = { kind: "video" as const, src: "a.mp4", track: 1, start: 4, end: 10 };
-  const later = trimLayerStart(v, 6);
-  assert.deepEqual([later.start, later.from], [6, 2]);
-  const back = trimLayerStart(later, 5);
-  assert.deepEqual([back.start, back.from], [5, 1]);
-  const full = trimLayerStart(later, 1); // can't go before the file's own beginning
-  assert.deepEqual([full.start, "from" in full], [4, false]);
-  assert.equal(trimLayerStart(v, 99).start, 9.8); // keeps a minimum length
-  const img = trimLayerStart({ kind: "image" as const, src: "a.png", track: 1, start: 4, end: 10 }, 1);
+  const later = trimLayerStart(v, 6, 1); // the caller found that 1 s of screen time was removed
+  assert.deepEqual([later.start, later.from], [6, 1]);
+  const back = trimLayerStart(later, 4, 0);
+  assert.deepEqual([back.start, "from" in back], [4, false]); // back at the file's beginning
+  assert.equal(trimLayerStart(v, 5, -3).from, undefined); // never before the file's beginning
+  assert.equal(trimLayerStart(v, 99, 2).start, 9.8); // keeps a minimum length
+  assert.deepEqual([trimLayerStart(later, 7).start, trimLayerStart(later, 7).from], [7, 1]); // no `from` given: unchanged
+  const img = trimLayerStart({ kind: "image" as const, src: "a.png", track: 1, start: 4, end: 10 }, 1, 5);
   assert.deepEqual([img.start, "from" in img], [1, false]); // an image just moves its start
 });
 
