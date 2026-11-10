@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from . import studio
 from .cloud import agent
 
 SUPPORTED = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
@@ -30,7 +31,9 @@ INSTRUCTIONS = (
     "and the creator watches the change appear in their browser editor. Start with list_reels, call get_guide once "
     "before your first edit, read only what you need with get_spec / find_words, then patch_spec. Make exactly the "
     "changes asked for. To start a reel from video files on this computer use make_reel with their full paths; long "
-    "work (making, rendering) is a job: poll job_status. undo reverts your latest patch."
+    "work (making, rendering) is a job: poll job_status. undo reverts your latest patch. For a whole video from a "
+    "brief, use a pipeline (list_pipelines, start_pipeline): work one stage at a time and wait for the creator's "
+    "approval between stages."
 )
 
 
@@ -77,6 +80,22 @@ TOOLS = [
           "9x16, 4x5, 1x1, 16x9 (default: the reel's own shape). uhd: twice the size (4K). Returns a job; poll job_status.",
           {**REEL, "quality": {"type": "string", "enum": list(QUALITIES)}, "aspects": {"type": "array", "items": {"type": "string", "enum": list(ASPECTS)}},
            "uhd": {"type": "boolean"}}, ["reel"]),
+    _tool("list_pipelines", "Pipelines that take a video from brief to finished in stages, with the creator approving each stage: "
+          "talking-head, screen-demo, multicam, clip-factory.", {}, [], True),
+    _tool("start_pipeline", "Start a pipeline on a reel, or on new video files (it makes the reel first). Returns the first stage: "
+          "do it, then finish_stage. Pass restart=true to start over on a reel that is already in a pipeline.",
+          {"pipeline": {"type": "string"}, "brief": {"type": "string", "description": "What the creator wants, in their words"},
+           "reel": {"type": "string"}, "clips": FILES, "restart": {"type": "boolean"}}, ["pipeline", "brief"]),
+    _tool("pipeline_status", "Where the reel is in its pipeline, and what to do now: the stage's goal, guide, checklist, and any note "
+          "from the creator. Check it before working and after the creator replies.", dict(REEL), ["reel"], True),
+    _tool("finish_stage", "Say the current stage is done, with a short summary for the creator of what you did. If the stage needs "
+          "approval it then waits for them; otherwise the next stage starts.", {**REEL, "summary": {"type": "string"}}, ["reel", "summary"]),
+    _tool("approve_stage", "Record the creator's approval of the stage that is waiting, so the next one starts. Only when the creator "
+          "has clearly approved it in this chat: put their words in note. Never approve on your own judgement.",
+          {**REEL, "note": {"type": "string", "description": "The creator's words"}}, ["reel", "note"]),
+    _tool("copy_reel", "Make a new reel from one stretch of a reel (SOURCE seconds): the clip factory's way to cut many clips from "
+          "one long video. The footage is shared, so it's instant. Returns the new reel's id.",
+          {**REEL, "start": {"type": "number"}, "end": {"type": "number"}, "name": {"type": "string"}}, ["reel", "start", "end"]),
     _tool("job_status", "Progress of a job (making, adding, rendering). When done, gives the result: the reel id, or the rendered files' paths.",
           {"job": {"type": "string"}}, ["job"], True),
 ]
@@ -107,6 +126,39 @@ def _guide() -> str:
         "time_map. Media fields (music, layers, b-roll) take full paths of files on this computer.\n\n"
         "## Spec reference\n" + agent.reference()
     )
+
+
+def _pipeline(pid) -> dict:
+    try:
+        return studio.get(str(pid or ""))
+    except studio.StageError as e:
+        raise Refused(str(e))
+
+
+def _stage_call(fn):
+    try:
+        return fn()
+    except studio.StageError as e:
+        raise Refused(str(e))
+
+
+def prompts() -> list[dict]:
+    """One ready-made prompt per pipeline, for clients that show a prompt menu (Claude Desktop)."""
+    return [{"name": p["id"], "title": p["name"], "description": p["for"],
+             "arguments": [{"name": "brief", "description": "What you want: audience, length, tone, call to action", "required": True},
+                           {"name": "clips", "description": "Full paths of the video files, separated by commas (or leave empty and give a reel)"},
+                           {"name": "reel", "description": "An existing reel's id instead of new files"}]} for p in studio.pipelines()]
+
+
+def prompt_text(pid: str, args: dict) -> str:
+    p = _pipeline(pid)
+    clips = [c.strip() for c in str(args.get("clips") or "").split(",") if c.strip()]
+    where = (f"the reel '{args['reel']}'" if args.get("reel") else
+             f"these video files: {', '.join(clips)}" if clips else "a reel I'll name (ask me which, using list_reels)")
+    return (f"Make me a {p['name'].lower()} with BetterCut's {p['id']} pipeline, from {where}.\n\nMy brief: {args.get('brief') or '(ask me)'}\n\n"
+            "Call start_pipeline, then work one stage at a time: follow the stage's guide, check its checklist, and call finish_stage "
+            "with a short summary. When a stage needs my approval, stop and show me what you did; continue only after I approve "
+            "(record it with approve_stage, quoting me) or redo what I ask.")
 
 
 def call(name: str, args: dict, base: str) -> str:
@@ -160,13 +212,62 @@ def call(name: str, args: dict, base: str) -> str:
                                     shape=shape, zoom=bool(args.get("screen")))
         return json.dumps({"job": jid, "reel": pid, "editor": f"{base}/?reel={pid}", "note": "poll job_status until done"})
 
+    if name == "list_pipelines":
+        return json.dumps([{"id": p["id"], "name": p["name"], "for": p["for"], "stages": [s["name"] for s in p["stages"]]} for p in studio.pipelines()],
+                          ensure_ascii=False)
+
+    if name == "start_pipeline" and not args.get("reel"):
+        if not args.get("clips"):
+            raise Refused("pass the reel to work on, or clips (full paths) to make a new reel from")
+        p = _pipeline(args.get("pipeline"))
+        clips = _videos(args.get("clips"), VIDEO_EXT)
+        pid, jid = srv.make_project(clips, name=Path(clips[0]).stem, zoom=p["id"] == "screen-demo")
+        st = _stage_call(lambda: studio.start(srv.PROJECTS / pid, p["id"], str(args.get("brief") or "")))
+        return json.dumps({"reel": pid, "job": jid, "editor": f"{base}/?reel={pid}", "note": "the reel is being made: poll job_status, then do the first stage",
+                           "now": studio.view(srv.PROJECTS / pid)["now"], "stages": [x["name"] for x in st["stages"]]}, ensure_ascii=False)
+
     reel = str(args.pop("reel", "") or "")
     try:
         proj = srv._proj(reel)
     except Exception:
         raise Refused("no such reel: call list_reels for the ids")
+
+    if name == "start_pipeline":
+        p = _pipeline(args.get("pipeline"))
+        _stage_call(lambda: studio.start(proj, p["id"], str(args.get("brief") or ""), restart=bool(args.get("restart"))))
+        return json.dumps({"reel": reel, "editor": f"{base}/?reel={reel}", **studio.view(proj)}, ensure_ascii=False)
+    if name == "pipeline_status":
+        v = studio.view(proj)
+        if v is None:
+            raise Refused("this reel isn't in a pipeline: start_pipeline first")
+        return json.dumps(v, ensure_ascii=False)
+    if name == "finish_stage":
+        _stage_call(lambda: studio.finish_stage(proj, str(args.get("summary") or "")))
+        return json.dumps(studio.view(proj)["now"], ensure_ascii=False)
+    if name == "approve_stage":
+        if not str(args.get("note") or "").strip():
+            raise Refused("put the creator's own words of approval in note")
+        _stage_call(lambda: studio.approve(proj, "Approved in chat: " + str(args["note"])))
+        return json.dumps(studio.view(proj)["now"], ensure_ascii=False)
+
     if not (proj / "spec.json").exists():
         raise Refused("this reel is still being made: poll its job, or try again in a minute")
+
+    if name == "copy_reel":
+        try:
+            a, b = float(args.get("start")), float(args.get("end"))
+        except (TypeError, ValueError):
+            raise Refused("start and end must be numbers (source seconds)")
+        title = str(args.get("name") or "")
+        pid, dst = srv.new_project(title or f"{reel}-{a:.0f}-{b:.0f}")
+        try:
+            spec = _stage_call(lambda: studio.copy_reel(proj, dst, a, b, title))
+        except Refused:
+            import shutil as _sh
+
+            _sh.rmtree(dst, ignore_errors=True)
+            raise
+        return json.dumps({"reel": pid, "editor": f"{base}/?reel={pid}", "shots": len(spec["segments"])}, ensure_ascii=False)
 
     if name == "render":
         quality = str(args.get("quality") or "draft")
@@ -226,7 +327,7 @@ def handle(msg, base: str) -> dict | None:
         return None
     if method == "initialize":
         want = params.get("protocolVersion")
-        return _result(mid, {"protocolVersion": want if want in SUPPORTED else SUPPORTED[0], "capabilities": {"tools": {}},
+        return _result(mid, {"protocolVersion": want if want in SUPPORTED else SUPPORTED[0], "capabilities": {"tools": {}, "prompts": {}},
                              "serverInfo": {"name": "bettercut", "title": "BetterCut", "version": "1.0.0"}, "instructions": INSTRUCTIONS})
     if method == "ping":
         return _result(mid, {})
@@ -244,8 +345,16 @@ def handle(msg, base: str) -> dict | None:
             text, bad = f"error: {type(e).__name__}: {e}", True
         bad = bad or text.startswith("error:")
         return _result(mid, {"content": [{"type": "text", "text": text}], "isError": bad})
-    if method in ("resources/list", "prompts/list"):
-        return _result(mid, {method.split("/")[0]: []})
+    if method == "prompts/list":
+        return _result(mid, {"prompts": prompts()})
+    if method == "prompts/get":
+        try:
+            text = prompt_text(str(params.get("name") or ""), params.get("arguments") or {})
+        except Refused as e:
+            return _error(mid, -32602, str(e))
+        return _result(mid, {"description": "BetterCut pipeline", "messages": [{"role": "user", "content": {"type": "text", "text": text}}]})
+    if method == "resources/list":
+        return _result(mid, {"resources": []})
     return _error(mid, -32601, f"method not found: {method}")
 
 

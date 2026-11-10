@@ -96,6 +96,17 @@ site: for those, deploy BetterCut (below) and give each user their connector lin
 If you would rather use an API key, the Notes box in the editor works with Anthropic, OpenAI, Gemini, OpenRouter or any
 OpenAI-compatible endpoint.
 
+## Pipeline mode: brief to finished video
+
+Ask Claude to make a whole video in stages, approving each one before the next starts. Pipelines (in
+`bettercut/pipelines/`): **talking-head** reel, **screen-demo**, **multicam** conversation, and **clip-factory** (many short
+clips from one long video). Each stage has a goal, a guide for Claude and a checklist: brief, rough cut, the pipeline's own
+middle stages (captions, zooms, camera pass, finding moments), polish and export.
+
+In Claude Desktop pick a pipeline from the prompt menu, or just ask: "Use the talking-head pipeline on ~/Movies/take.mov:
+a 15-second tips reel for Instagram". When a stage is ready, the editor shows it with **Approve** and **Send back** (with a
+note); you can also answer Claude in the chat. The reel remembers its stage, so you can carry on in a new chat later.
+
 ## Host it for others
 
 `bettercut/deploy/` has a Docker image, HTTPS through Caddy and a step-by-step guide for a free server:

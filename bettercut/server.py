@@ -248,6 +248,11 @@ def _make_job(pid: str, proj: Path, clips: list[str], look: str = "bold-pop", na
     return _job("make", pid, work)["id"]
 
 
+def new_project(name: str) -> tuple[str, Path]:
+    """An empty project folder with a unique id made from the name: (id, folder)."""
+    return _new_project(name)
+
+
 def make_project(clips: list[str], name: str = "reel", look: str = "bold-pop", shape: str = "auto", zoom: bool = False) -> tuple[str, str]:
     """A new reel from files already on this computer (used by the Claude connection): (project id, job id)."""
     pid, proj = _new_project(name)
@@ -362,8 +367,46 @@ def get_spec(pid: str):
 
 @app.get("/api/projects/{pid}/head")
 def get_head(pid: str):
-    """Cheap poll for the editor: has the reel changed elsewhere (Claude, a finished job)?"""
-    return head_of(_proj(pid))
+    """Cheap poll for the editor: has the reel changed elsewhere (Claude, a finished job)? `pipeline` is when the
+    reel's pipeline last changed, so the stage strip can refresh too."""
+    from . import studio
+
+    proj = _proj(pid)
+    st = studio.state(proj)
+    return {**head_of(proj), "pipeline": st.get("updated") if st else None}
+
+
+@app.get("/api/pipelines")
+def list_pipelines():
+    from . import studio
+
+    return [{"id": p["id"], "name": p["name"], "for": p["for"], "stages": [x["name"] for x in p["stages"]]} for p in studio.pipelines()]
+
+
+@app.get("/api/projects/{pid}/pipeline")
+def get_pipeline(pid: str):
+    from . import studio
+
+    return {"pipeline": studio.view(_proj(pid))}
+
+
+@app.post("/api/projects/{pid}/pipeline/{action}")
+async def pipeline_action(pid: str, action: str, req: Request):
+    """The creator approves the waiting stage, or sends it back with a note."""
+    from . import studio
+
+    proj = _proj(pid)
+    body = await req.json() if (await req.body()) else {}
+    try:
+        if action == "approve":
+            studio.approve(proj, str(body.get("note") or ""))
+        elif action == "send-back":
+            studio.send_back(proj, str(body.get("note") or ""))
+        else:
+            raise HTTPException(404)
+    except studio.StageError as e:
+        raise HTTPException(409, str(e))
+    return {"pipeline": studio.view(proj)}
 
 
 @app.put("/api/projects/{pid}/spec")
