@@ -98,17 +98,33 @@ details.item summary { cursor: pointer; font-size: 13px; display: flex; justify-
 .transcript .w.active { background: var(--brand); color: #fff; }
 .notes li span { font-size: 13px; }
 
-.timeline { position: relative; height: 54px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; overflow: hidden; flex: none; }
-.timeline .track { position: absolute; left: 0; right: 0; }
-.timeline .segs { top: 6px; height: 18px; }
-.timeline .ovs { top: 28px; height: 18px; }
-.timeline .seg { position: absolute; top: 0; bottom: 0; background: #3d4a70; border-right: 1px solid var(--bg); }
-.timeline .seg.b { background: #4c5c8a; }
-.timeline .seg.end { background: #6b5320; }
-.timeline .ov { position: absolute; top: 0; bottom: 0; background: #2f6b55; font-size: 10px; padding: 2px 4px; overflow: hidden; white-space: nowrap; border-radius: 4px; }
-.timeline .ov.broll { background: #6b2f5f; }
-.timeline .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
-.timeline .note-pin { position: absolute; top: 0; width: 8px; height: 8px; margin-left: -4px; background: var(--danger); border-radius: 50%; }
+.tl { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; flex: none; overflow: hidden; }
+.tl-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.tl-bar button { padding: 3px 9px; font-size: 12px; }
+.tl-bar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.tl-bar select { padding: 2px 4px; font-size: 12px; }
+.tl-bar .spacer { flex: 1; }
+.tl-info { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-scroll { overflow-x: auto; overflow-y: hidden; }
+.tl-lane { position: relative; height: 78px; min-width: 100%; cursor: pointer; touch-action: none; }
+.tl-ruler { position: absolute; top: 0; left: 0; right: 0; height: 16px; border-bottom: 1px solid var(--line); }
+.tl-ruler span { position: absolute; top: 2px; padding-left: 4px; font-size: 10px; color: var(--muted); border-left: 1px solid var(--line); height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-track { position: absolute; left: 0; right: 0; }
+.tl-track.shots { top: 22px; height: 28px; }
+.tl-track.extras { top: 55px; height: 18px; }
+.tl .shot { position: absolute; top: 0; bottom: 0; background: #3d4a70; border-right: 1px solid var(--bg); border-radius: 4px; overflow: hidden; }
+.tl .shot.b { background: #4c5c8a; }
+.tl .shot.end { background: #6b5320; }
+.tl .shot.sel { background: var(--brand); outline: 2px solid var(--accent); outline-offset: -2px; }
+.tl .shot i { position: absolute; left: 5px; top: 6px; font-size: 10px; font-style: normal; color: #fff; opacity: .85; pointer-events: none; }
+.tl .shot b { position: absolute; right: 0; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.28) 0 4px, transparent 4px 8px); }
+.tl .handle { position: absolute; top: -3px; bottom: -3px; width: 10px; margin-left: 0; background: var(--accent); border-radius: 3px 0 0 3px; cursor: ew-resize; z-index: 2; }
+.tl .handle.right { margin-left: -10px; border-radius: 0 3px 3px 0; }
+.tl .ov { position: absolute; top: 0; bottom: 0; background: #2f6b55; font-size: 10px; padding: 2px 4px; overflow: hidden; white-space: nowrap; border-radius: 4px; cursor: grab; user-select: none; }
+.tl .ov.sel { outline: 2px solid var(--accent); outline-offset: -2px; cursor: grabbing; }
+.tl .ov.broll { background: #6b2f5f; }
+.tl .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; z-index: 3; }
+.tl .note-pin { position: absolute; top: 16px; width: 8px; height: 8px; margin-left: -4px; background: var(--danger); border-radius: 50%; }
 .issues { font-size: 12px; color: #ffc46b; }
 .renders { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
 .renders a { color: var(--accent); }
