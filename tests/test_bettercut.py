@@ -1096,3 +1096,120 @@ def test_claude_setup_lists_paths_for_both_apps():
     desk = cfg["claude_desktop"]["mcpServers"]["bettercut"]
     assert desk["args"][:3] == ["-m", "bettercut", "mcp"] and "PYTHONPATH" in desk["env"]
     assert cfg["claude_code"] == "claude mcp add --transport http bettercut http://127.0.0.1:4790/mcp"
+
+
+# ---- pipeline mode ----
+
+def test_every_pipeline_is_well_formed_and_ends_in_an_export():
+    from bettercut import studio
+
+    ps = studio.pipelines()
+    assert [p["id"] for p in ps] == ["talking-head", "screen-demo", "multicam", "clip-factory"]
+    for p in ps:
+        assert p["name"] and p["for"] and len(p["stages"]) >= 4
+        ids = [s["id"] for s in p["stages"]]
+        assert len(ids) == len(set(ids)) and ids[0] == "brief" and ids[-1] == "export"
+        for s in p["stages"]:
+            assert s["goal"] and len(s["guide"]) > 80 and s["checklist"], (p["id"], s["id"])
+        assert p["stages"][0]["approve"] and not p["stages"][-1]["approve"]  # agree the brief; exporting needs no sign-off
+
+
+def test_a_pipeline_waits_for_the_creator_between_stages(tmp_path):
+    import pytest
+
+    from bettercut import studio
+
+    proj = tmp_path / "p"
+    proj.mkdir()
+    st = studio.start(proj, "talking-head", "60 s tips reel")
+    assert st["stages"][0]["status"] == "doing" and studio.view(proj)["now"]["name"] == "Brief"
+    with pytest.raises(studio.StageError):
+        studio.start(proj, "screen-demo")  # one at a time, unless restarting
+    with pytest.raises(studio.StageError):
+        studio.approve(proj)  # nothing waiting yet
+    studio.finish_stage(proj, "plan: hook = the money line")
+    v = studio.view(proj)
+    assert v["now"]["status"] == "review" and "Waiting for the creator" in v["now"]["say"]
+    with pytest.raises(studio.StageError):
+        studio.finish_stage(proj, "again")  # can't skip past the creator
+    with pytest.raises(studio.StageError):
+        studio.send_back(proj, "  ")
+    studio.send_back(proj, "make it 45 s")
+    v = studio.view(proj)
+    assert v["now"]["status"] == "doing" and v["now"]["creatorNote"] == "make it 45 s"
+    studio.finish_stage(proj, "45 s plan")
+    studio.approve(proj, "looks good")
+    v = studio.view(proj)
+    assert v["stage"] == 1 and v["now"]["name"] == "Rough cut" and v["now"]["approvedWithNote"] == "looks good"
+    for _ in range(3):  # rough cut, captions, polish
+        studio.finish_stage(proj, "done")
+        studio.approve(proj)
+    studio.finish_stage(proj, "rendered")  # export needs no approval
+    assert studio.view(proj)["finished"] is True
+    assert studio.start(proj, "screen-demo")["pipeline"] == "screen-demo"  # a finished one can be followed by another
+    with pytest.raises(studio.StageError):
+        studio.start(proj, "nope", restart=True)
+
+
+def test_copy_reel_keeps_one_stretch_and_shares_the_footage(tmp_path):
+    import json
+
+    import pytest
+
+    from bettercut import pipeline, studio
+
+    src, dst = tmp_path / "long", tmp_path / "clip"
+    (src / "work").mkdir(parents=True)
+    (src / "work" / "words.raw.json").write_text("[]")
+    pipeline.save(src, {"version": 1, "title": "Podcast", "source": {"src": "/x/source.mp4", "duration": 600},
+                        "segments": [{"id": "s1", "start": 10, "end": 40}, {"id": "s2", "start": 50, "end": 90, "reversed": {"src": "r"}}, {"id": "s3", "start": 100, "end": 120}],
+                        "words": [], "broll": [{"word": "x"}]})
+    spec = studio.copy_reel(src, dst, 30, 60)
+    assert [(s["id"], s["start"], s["end"]) for s in spec["segments"]] == [("s1", 30, 40), ("s2", 50, 60)]
+    assert "reversed" not in spec["segments"][1] and "broll" not in spec
+    assert spec["source"]["src"] == "/x/source.mp4" and spec["title"] == "Podcast 30-60s"
+    assert json.loads((dst / "spec.json").read_text())["segments"] == spec["segments"] and (dst / "work" / "words.raw.json").exists()
+    with pytest.raises(studio.StageError):
+        studio.copy_reel(src, tmp_path / "x", 41, 49)  # only a gap between shots
+    with pytest.raises(studio.StageError):
+        studio.copy_reel(src, tmp_path / "y", 700, 800)
+
+
+def test_claude_runs_a_pipeline_and_the_editor_can_approve(tmp_path, monkeypatch):
+    import json as _json
+
+    c = _editor(tmp_path, monkeypatch)
+    c.base_url = "http://127.0.0.1:4790"
+    init = _rpc(c, "initialize", {"protocolVersion": "2025-06-18"}).json()["result"]
+    assert "prompts" in init["capabilities"]
+    prompts = _rpc(c, "prompts/list").json()["result"]["prompts"]
+    assert [p["name"] for p in prompts][:2] == ["talking-head", "screen-demo"]
+    msg = _rpc(c, "prompts/get", {"name": "screen-demo", "arguments": {"brief": "30 s demo", "clips": "/a.mov, /b.mov"}}).json()["result"]["messages"][0]
+    assert "screen-demo pipeline" in msg["content"]["text"] and "/a.mov, /b.mov" in msg["content"]["text"]
+    assert "error" in _rpc(c, "prompts/get", {"name": "nope"}).json()
+
+    assert "talking-head" in _tool(c, "list_pipelines")[0]
+    out = _json.loads(_tool(c, "start_pipeline", pipeline="talking-head", brief="tips", reel="p")[0])
+    assert out["now"]["name"] == "Brief"
+    assert c.get("/api/projects/p/head").json()["pipeline"]  # the editor sees the pipeline change
+    now = _json.loads(_tool(c, "finish_stage", reel="p", summary="plan ready")[0])
+    assert now["status"] == "review"
+    assert _tool(c, "approve_stage", reel="p", note="")[1]  # needs the creator's words
+
+    # the creator sends it back from the editor, Claude sees the note, redoes it, and the creator approves
+    assert c.post("/api/projects/p/pipeline/send-back", json={"note": "shorter"}).status_code == 200
+    assert _json.loads(_tool(c, "pipeline_status", reel="p")[0])["now"]["creatorNote"] == "shorter"
+    _tool(c, "finish_stage", reel="p", summary="shorter plan")
+    r = c.post("/api/projects/p/pipeline/approve", json={})
+    assert r.status_code == 200 and r.json()["pipeline"]["now"]["name"] == "Rough cut"
+    assert c.post("/api/projects/p/pipeline/approve", json={}).status_code == 409  # nothing waiting
+    assert c.get("/api/pipelines").json()[0]["id"] == "talking-head"
+
+    # in chat: approval recorded with the creator's words
+    _tool(c, "finish_stage", reel="p", summary="cut")
+    assert not _tool(c, "approve_stage", reel="p", note="yes, ship it")[1]
+    st = c.get("/api/projects/p/pipeline").json()["pipeline"]
+    assert st["stages"][1]["note"] == "Approved in chat: yes, ship it"
+
+    assert "no such reel" in _tool(c, "pipeline_status", reel="nope")[0]
+    assert "pass the reel" in _tool(c, "start_pipeline", pipeline="talking-head", brief="x")[0]

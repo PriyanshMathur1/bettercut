@@ -130,6 +130,8 @@ export interface ReviewInfo {
   path?: string;
 }
 
+import type { PipelineView } from "./stages";
+
 export type ConnectorLink = { on: boolean; url: string; lastUsed: number | null };
 
 export const api = {
@@ -197,7 +199,12 @@ export const api = {
     return r.json();
   },
   me: () => af("/api/me").then((r) => j<{ email: string; projects: number; rendersToday: number; hasModel: boolean; storageBytes: number; limits: { projects: number; rendersPerDay: number } }>(r)),
-  head: (pid: string) => af(`/api/projects/${pid}/head`).then((r) => j<{ version: number | null; author: string; summary: string }>(r)),
+  head: (pid: string) => af(`/api/projects/${pid}/head`).then((r) => j<{ version: number | null; author: string; summary: string; pipeline?: number | null }>(r)),
+  pipeline: (pid: string) => af(`/api/projects/${pid}/pipeline`).then((r) => j<{ pipeline: PipelineView | null }>(r)),
+  pipelineAction: (pid: string, action: "approve" | "send-back", note: string) =>
+    af(`/api/projects/${pid}/pipeline/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) }).then((r) =>
+      j<{ pipeline: PipelineView | null }>(r),
+    ),
   connector: () => af("/api/connector").then((r) => j<ConnectorLink>(r)),
   makeConnector: () => af("/api/connector", { method: "POST" }).then((r) => j<ConnectorLink>(r)),
   removeConnector: () => af("/api/connector", { method: "DELETE" }).then((r) => j<{ ok: boolean }>(r)),

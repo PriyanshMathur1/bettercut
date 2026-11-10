@@ -1,0 +1,68 @@
+{
+ "id": "clip-factory",
+ "name": "Clip factory",
+ "for": "Many short clips from one long video: a podcast, a talk, a livestream.",
+ "needs": "clips",
+ "stages": [
+  {
+   "id": "brief",
+   "name": "Brief",
+   "approve": true,
+   "goal": "Agree how many clips, how long, and for where.",
+   "guide": "Read the reel's words. Agree with the creator how many clips they want, how long each should be, the platform (shape), and the topics or kinds of moment to look for (advice, stories, strong opinions, funny moments). Change nothing yet.",
+   "checklist": [
+    "number and length of clips agreed",
+    "platform and shape agreed",
+    "what makes a good moment named"
+   ]
+  },
+  {
+   "id": "moments",
+   "name": "Find moments",
+   "approve": true,
+   "goal": "Pick moments that stand on their own.",
+   "guide": "Read the whole transcript (get_spec words, in parts). Propose the moments as a list: start and end in SOURCE seconds, the opening line (the hook), and one line on why it works. Each must make sense without the rest of the video and end on a payoff, not mid-thought. Prefer moments where the first sentence works as a hook.",
+   "checklist": [
+    "each moment stands on its own",
+    "each opens on a hook line",
+    "each ends on a payoff",
+    "lengths within the agreed range"
+   ]
+  },
+  {
+   "id": "make-clips",
+   "name": "Make the clips",
+   "approve": true,
+   "goal": "One reel per approved moment.",
+   "guide": "For each approved moment, copy_reel with its start and end. Then on each new reel: tighten pauses and fillers, set a hook title from its opening line, and use the same caption style on all of them so they look like a series.",
+   "checklist": [
+    "one reel per approved moment",
+    "same caption style across the series",
+    "each has a hook title"
+   ]
+  },
+  {
+   "id": "polish",
+   "name": "Polish",
+   "approve": true,
+   "goal": "Finish the whole series consistently.",
+   "guide": "Apply the same look, music level and end card to every clip in the series. Proofread each one's captions.",
+   "checklist": [
+    "same look and end card on every clip",
+    "captions proofread on every clip"
+   ]
+  },
+  {
+   "id": "export",
+   "name": "Export",
+   "approve": false,
+   "goal": "Render every clip.",
+   "guide": "Render a draft of one clip and check it, then render every clip at high quality in the agreed shape. List the files for the creator.",
+   "checklist": [
+    "one draft checked",
+    "every clip rendered",
+    "file list given to the creator"
+   ]
+  }
+ ]
+}

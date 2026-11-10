@@ -1,0 +1,70 @@
+{
+ "id": "screen-demo",
+ "name": "Screen demo",
+ "for": "Product walkthroughs, tutorials and app demos recorded from the screen.",
+ "needs": "clips",
+ "stages": [
+  {
+   "id": "brief",
+   "name": "Brief",
+   "approve": true,
+   "goal": "Agree what this video is for before touching the edit.",
+   "guide": "Read the reel (get_spec overview, and the words) and the creator's brief. Write back a short plan: who it is for, the one thing a viewer should take away, the hook (the first line or moment that stops the scroll), the target length, the call to action, and the look (captions, music, pace). Ask only what you can't work out from the footage. Change nothing yet.",
+   "checklist": [
+    "audience and takeaway named",
+    "hook chosen from what was actually said",
+    "target length set",
+    "call to action named"
+   ]
+  },
+  {
+   "id": "rough-cut",
+   "name": "Rough cut",
+   "approve": true,
+   "goal": "Show each step once, with no waiting.",
+   "guide": "Make the reel with screen=true if starting from files. Remove loading, typing pauses, mistakes and repeated attempts; keep each step of the task once. If there is narration, cut it like a talking head (best takes, no fillers). If there isn't, keep it short and plan text cards for the steps.",
+   "checklist": [
+    "every step of the task shown once",
+    "no dead time (loading, waiting)",
+    "within the target length"
+   ]
+  },
+  {
+   "id": "zooms",
+   "name": "Zooms and steps",
+   "approve": true,
+   "goal": "Point the viewer at what matters on the screen.",
+   "guide": "Run zoom_on_clicks, then check each zoom against what is being explained: remove zooms on unimportant changes, move the centre onto the button or text being discussed, and keep zoom between 1.4 and 2.2 so the context stays visible. Add a short title for each step (Step 1, Step 2...) or a chapter card if the demo has parts.",
+   "checklist": [
+    "every zoom points at the thing being explained",
+    "no zoom on an unimportant change",
+    "steps labelled"
+   ]
+  },
+  {
+   "id": "polish",
+   "name": "Polish",
+   "approve": true,
+   "goal": "Make it look and sound finished.",
+   "guide": "Pick a look and grade that suit the brief (list_options looks, grades). Set music that fits and keep it under the voice (audio ducking); add a sound effect only where it lands a moment. Use transitions sparingly: a hard cut is the default. Set the end card with the creator's name and call to action. Re-read the captions once for spelling, names and line breaks.",
+   "checklist": [
+    "look and grade set",
+    "music under the voice",
+    "captions proofread (names spelled right)",
+    "end card with the call to action"
+   ]
+  },
+  {
+   "id": "export",
+   "name": "Export",
+   "approve": false,
+   "goal": "Hand over files that are ready to post.",
+   "guide": "Render a draft first and wait for it (job_status). Read the QA issues in its result and fix any that matter, then render at high quality in the shapes the creator needs (9x16 for Reels, Shorts and TikTok; 4x5 or 1x1 for feeds; 16x9 for YouTube). Give the creator the file paths and the editor link.",
+   "checklist": [
+    "draft QA issues checked",
+    "final render done in every shape asked for",
+    "file paths given to the creator"
+   ]
+  }
+ ]
+}

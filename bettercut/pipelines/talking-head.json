@@ -1,0 +1,71 @@
+{
+ "id": "talking-head",
+ "name": "Talking-head reel",
+ "for": "Someone speaking to camera: tips, stories, opinions, explainers.",
+ "needs": "clips",
+ "stages": [
+  {
+   "id": "brief",
+   "name": "Brief",
+   "approve": true,
+   "goal": "Agree what this video is for before touching the edit.",
+   "guide": "Read the reel (get_spec overview, and the words) and the creator's brief. Write back a short plan: who it is for, the one thing a viewer should take away, the hook (the first line or moment that stops the scroll), the target length, the call to action, and the look (captions, music, pace). Ask only what you can't work out from the footage. Change nothing yet.",
+   "checklist": [
+    "audience and takeaway named",
+    "hook chosen from what was actually said",
+    "target length set",
+    "call to action named"
+   ]
+  },
+  {
+   "id": "rough-cut",
+   "name": "Rough cut",
+   "approve": true,
+   "goal": "Keep only the best take of every line, in an order that holds attention.",
+   "guide": "Use the transcript. Cut retakes (keep the last clean take), fillers, false starts and anything off the brief. Open on the hook: if the strongest line comes later, move that shot to the start. Keep pauses short but leave a breath after a punchline. Check the length against the target and cut whole sentences, not words, to get there.",
+   "checklist": [
+    "opens on the hook",
+    "no retakes or fillers left",
+    "within the target length",
+    "every cut lands between sentences or clean phrases"
+   ]
+  },
+  {
+   "id": "captions-story",
+   "name": "Captions and emphasis",
+   "approve": true,
+   "goal": "Make it easy to follow with the sound off.",
+   "guide": "Set a caption style that suits the look, with the key words emphasised (one or two per line, not every line). Put a hook title on the opening if the first line needs help. Add a camera push-in or punch-in on the biggest moments (at most one every few seconds). Add b-roll or a text card only where a picture says more than the face.",
+   "checklist": [
+    "captions readable on a phone",
+    "emphasis on the words that matter",
+    "punch-ins on key moments only"
+   ]
+  },
+  {
+   "id": "polish",
+   "name": "Polish",
+   "approve": true,
+   "goal": "Make it look and sound finished.",
+   "guide": "Pick a look and grade that suit the brief (list_options looks, grades). Set music that fits and keep it under the voice (audio ducking); add a sound effect only where it lands a moment. Use transitions sparingly: a hard cut is the default. Set the end card with the creator's name and call to action. Re-read the captions once for spelling, names and line breaks.",
+   "checklist": [
+    "look and grade set",
+    "music under the voice",
+    "captions proofread (names spelled right)",
+    "end card with the call to action"
+   ]
+  },
+  {
+   "id": "export",
+   "name": "Export",
+   "approve": false,
+   "goal": "Hand over files that are ready to post.",
+   "guide": "Render a draft first and wait for it (job_status). Read the QA issues in its result and fix any that matter, then render at high quality in the shapes the creator needs (9x16 for Reels, Shorts and TikTok; 4x5 or 1x1 for feeds; 16x9 for YouTube). Give the creator the file paths and the editor link.",
+   "checklist": [
+    "draft QA issues checked",
+    "final render done in every shape asked for",
+    "file paths given to the creator"
+   ]
+  }
+ ]
+}

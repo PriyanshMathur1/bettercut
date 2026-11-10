@@ -1,0 +1,70 @@
+{
+ "id": "multicam",
+ "name": "Multi-camera conversation",
+ "for": "Podcasts, interviews and two-person talks filmed with more than one camera.",
+ "needs": "clips",
+ "stages": [
+  {
+   "id": "brief",
+   "name": "Brief",
+   "approve": true,
+   "goal": "Agree what this video is for before touching the edit.",
+   "guide": "Read the reel (get_spec overview, and the words) and the creator's brief. Write back a short plan: who it is for, the one thing a viewer should take away, the hook (the first line or moment that stops the scroll), the target length, the call to action, and the look (captions, music, pace). Ask only what you can't work out from the footage. Change nothing yet.",
+   "checklist": [
+    "audience and takeaway named",
+    "hook chosen from what was actually said",
+    "target length set",
+    "call to action named"
+   ]
+  },
+  {
+   "id": "sync-rough",
+   "name": "Sync and rough cut",
+   "approve": true,
+   "goal": "Line the cameras up and keep the best part of the conversation.",
+   "guide": "Make the reel from the main camera (the one with the best sound), then add_angles with the other cameras. Check every angle synced well (a weak match is reported). Cut to the strongest stretch of the conversation for the brief: a complete thought with a clear start and payoff. Remove crosstalk, ums and tangents.",
+   "checklist": [
+    "every angle synced (no weak match)",
+    "one complete thought with a clear payoff",
+    "within the target length"
+   ]
+  },
+  {
+   "id": "camera-pass",
+   "name": "Camera pass",
+   "approve": true,
+   "goal": "Cut cameras like an editor, not a switcher.",
+   "guide": "Start from cut_to_speaker, then adjust the camera cuts: hold on the speaker through a punchline, cut to the listener for a reaction when it adds something, and avoid shots shorter than about a second and a half. Use the wide shot (if there is one) to open and to reset after a long stretch.",
+   "checklist": [
+    "punchlines stay on the speaker",
+    "reactions used where they add something",
+    "no flicker (very short shots)"
+   ]
+  },
+  {
+   "id": "polish",
+   "name": "Polish",
+   "approve": true,
+   "goal": "Make it look and sound finished.",
+   "guide": "Pick a look and grade that suit the brief (list_options looks, grades). Set music that fits and keep it under the voice (audio ducking); add a sound effect only where it lands a moment. Use transitions sparingly: a hard cut is the default. Set the end card with the creator's name and call to action. Re-read the captions once for spelling, names and line breaks.",
+   "checklist": [
+    "look and grade set",
+    "music under the voice",
+    "captions proofread (names spelled right)",
+    "end card with the call to action"
+   ]
+  },
+  {
+   "id": "export",
+   "name": "Export",
+   "approve": false,
+   "goal": "Hand over files that are ready to post.",
+   "guide": "Render a draft first and wait for it (job_status). Read the QA issues in its result and fix any that matter, then render at high quality in the shapes the creator needs (9x16 for Reels, Shorts and TikTok; 4x5 or 1x1 for feeds; 16x9 for YouTube). Give the creator the file paths and the editor link.",
+   "checklist": [
+    "draft QA issues checked",
+    "final render done in every shape asked for",
+    "file paths given to the creator"
+   ]
+  }
+ ]
+}

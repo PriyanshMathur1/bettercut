@@ -12,6 +12,7 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { CamRow } from "./CamRow";
+import { PipelineBar } from "./PipelineBar";
 import { ZoomRow } from "./ZoomRow";
 import { ReviewPanel } from "./ReviewPanel";
 import { newNotes } from "./review";
@@ -74,6 +75,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [hasModel, setHasModel] = useState(!cloud);
   const [aiReply, setAiReply] = useState("");
   const [landed, setLanded] = useState(""); // a short notice when an edit from Claude lands in the open reel
+  const [pipeKey, setPipeKey] = useState<number | null | undefined>(undefined); // when the reel's pipeline last changed
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [pid, setPid] = useState<string>(() => new URLSearchParams(location.search).get("reel") || localStorage.getItem("rs.pid") || "");
@@ -159,6 +161,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       if (savingRef.current !== "saved" || document.hidden || versionRef.current === undefined) return;
       try {
         const h = await api.head(pid);
+        setPipeKey(h.pipeline);
         const changed = h.version !== versionRef.current;
         versionRef.current = h.version;
         if (changed && h.author !== "user") {
@@ -786,6 +789,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           />
 
           <section className="center">
+            {!cloud && pid ? <PipelineBar pid={pid} refreshKey={pipeKey} /> : null}
             <div className="stage">
               <Guard name="The preview" key={`pv-${pid}`}>
               {inputProps ? (
