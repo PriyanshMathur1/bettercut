@@ -58,6 +58,26 @@ def normalise(path: Path, target: float = -14.0, tp: float = -1.0, lra: float = 
     return {"before": float(m["input_i"]), "after": float(after["input_i"]), "truePeak": float(after["input_tp"])}
 
 
+def tile_beats(found: list[float], music_seconds: float, reel_seconds: float) -> list[float]:
+    """The music loops when it is shorter than the reel, so its beats repeat every `music_seconds`."""
+    if not found or music_seconds <= 0 or music_seconds >= reel_seconds:
+        return [b for b in found if b <= reel_seconds]
+    out: list[float] = []
+    k = 0
+    while k * music_seconds < reel_seconds:
+        out += [round(b + k * music_seconds, 3) for b in found if b < music_seconds and b + k * music_seconds <= reel_seconds]
+        k += 1
+    return out
+
+
+def duration(path: Path) -> float:
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
 def beats(music: Path, max_seconds: float | None = None) -> list[float]:
     """Beat times (seconds from the start of the music file) with librosa (ISC licence)."""
     import librosa

@@ -510,3 +510,32 @@ def test_reversed_shots_get_a_file_that_survives_trimming_inwards(tmp_path, monk
     assert not reverse.is_current(baked)
     baked["segments"][1]["reverse"] = False  # switched off: the file reference goes away
     assert "reversed" not in reverse.bake(baked, proj, log=lambda m: None)["segments"][1]
+
+
+def test_beats_repeat_when_the_music_loops_and_stop_at_the_end_of_the_reel():
+    from bettercut.audio import tile_beats
+
+    assert tile_beats([0.5, 1.5, 2.5], 3.0, 7.0) == [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5]
+    assert tile_beats([0.5, 1.5, 9.0], 20.0, 5.0) == [0.5, 1.5]  # music longer than the reel: no loop
+    assert tile_beats([], 3.0, 7.0) == []
+
+
+def test_beats_are_found_again_only_when_the_music_changes(tmp_path, monkeypatch):
+    from bettercut import audio, colour, render, reverse
+
+    proj, spec = _reel(tmp_path)
+    music = tmp_path / "song.mp3"
+    music.write_bytes(b"x")
+    calls = []
+    monkeypatch.setattr(audio, "beats", lambda p, max_seconds=None: (calls.append(str(p)), [0.5, 1.0])[1])
+    monkeypatch.setattr(audio, "duration", lambda p: 60.0)
+    monkeypatch.setattr(colour, "is_current", lambda s: True)
+    monkeypatch.setattr(reverse, "is_current", lambda s: True)
+    spec["audio"] = {"music": str(music)}
+    out = render.prepare(spec, proj, log=lambda m: None)
+    assert out["audio"]["beats"] == [0.5, 1.0] and out["audio"]["beatsFor"] == str(music)
+    render.prepare(out, proj, log=lambda m: None)
+    assert len(calls) == 1  # same music: not analysed again
+    out["audio"].pop("music")
+    cleared = render.prepare(out, proj, log=lambda m: None)
+    assert "beats" not in cleared["audio"] and "beatsFor" not in cleared["audio"]

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
-import { baseOf, freezeAt, moveShot, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit";
+import { baseOf, freezeAt, moveShot, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, splitMany, trimShot } from "../../src/reel/edit";
+import { beatsBetween, snapTo } from "../../src/reel/beats";
 import { effectsByFamily } from "../../src/reel/motion/effects";
 
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
@@ -130,6 +131,17 @@ export const Timeline: React.FC<{
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
   const lane = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const [snap, setSnap] = useState(true); // land the playhead and trimmed cuts on music beats
+
+  // music beats (OUTPUT seconds), found by the server when the music is set
+  const music = spec.audio?.music;
+  const beatsReady = !!music && spec.audio?.beatsFor === music && !!spec.audio?.beats?.length;
+  const beats = beatsReady ? (spec.audio!.beats as number[]).filter((b) => b <= duration) : [];
+  /** Snap an output time to a beat when one is within about 8 pixels. */
+  const onBeat = (out: number) => {
+    if (!snap || !beats.length || !lane.current) return out;
+    return snapTo(beats, out, (8 * duration) / lane.current.getBoundingClientRect().width);
+  };
 
   const shots = spec.segments;
   const body = totalOutDuration(placed);
@@ -200,8 +212,8 @@ export const Timeline: React.FC<{
 
   /** Drag on the ruler or empty lane: scrub the playhead. */
   const scrub = (e: React.PointerEvent) => {
-    onSeek(outAt(e.clientX));
-    const move = (ev: PointerEvent) => onSeek(outAt(ev.clientX));
+    onSeek(onBeat(outAt(e.clientX)));
+    const move = (ev: PointerEvent) => onSeek(onBeat(outAt(ev.clientX)));
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -219,8 +231,17 @@ export const Timeline: React.FC<{
     const from = edge === "start" ? selected.start : selected.end;
     const perPx = (duration / lane.current!.getBoundingClientRect().width) * speedOf(selected); // source seconds per pixel
     const x0 = e.clientX;
+    const speed = speedOf(selected);
+    // where this shot's footage ends in the reel right now: the cut that moves as either edge is trimmed
+    const cut0 = mine.length ? mine[mine.length - 1].p.outEnd - (selected.hold || 0) : null;
     const move = (ev: PointerEvent) => {
-      const to = from + (ev.clientX - x0) * perPx;
+      let to = from + (ev.clientX - x0) * perPx;
+      if (cut0 !== null) {
+        const sign = edge === "end" ? 1 : -1;
+        const cut = cut0 + (sign * (to - from)) / speed;
+        const snapped = onBeat(cut);
+        if (snapped !== cut) to = from + sign * (snapped - cut0) * speed;
+      }
       update((s) => ({ ...s, segments: trimShot(s.segments, i, edge, to, s.source.duration) }));
     };
     const up = () => {
@@ -321,6 +342,26 @@ export const Timeline: React.FC<{
                 </select>
               </label>
             ) : null}
+            {beats.length && mine.length ? (
+              <label title="Cut this shot on the music's beats, for a montage that moves with the song">
+                Split on beats
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (!n) return;
+                    const times = beatsBetween(beats, mine[0].p.outStart, mine[mine.length - 1].p.outEnd - (selected.hold || 0), n).map((b) => toSource(placed, b));
+                    if (times.length) update((s) => ({ ...s, segments: splitMany(s.segments, times) }));
+                    setSel(null);
+                  }}
+                >
+                  <option value="">Choose…</option>
+                  <option value="1">Every beat</option>
+                  <option value="2">Every 2nd beat</option>
+                  <option value="4">Every 4th beat</option>
+                </select>
+              </label>
+            ) : null}
             <label title="Change speed gradually across this shot">
               Ramp
               <select
@@ -380,6 +421,16 @@ export const Timeline: React.FC<{
           <span className="tl-info">Click a shot to select it</span>
         )}
         <div className="spacer" />
+        {music && !beatsReady ? (
+          <button onClick={() => updateAndBake((s) => s)} disabled={busy} title="Find the beats in this reel's music, to show them here and snap cuts to them">
+            Find beats
+          </button>
+        ) : beats.length ? (
+          <label title="Land the playhead and trimmed cuts on the music's beats">
+            <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
+            Snap to beat
+          </label>
+        ) : null}
         <button onClick={() => picker.current?.click()} disabled={busy} title="Add more video clips to the end of this reel">
           Add clips
         </button>
@@ -424,6 +475,9 @@ export const Timeline: React.FC<{
       <div className="tl-scroll">
         <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%` }} onPointerDown={scrub}>
           <div className="tl-ruler">
+            {beats.map((b) => (
+              <em key={b} style={{ left: pct(b) }} />
+            ))}
             {ticks.map((x) => (
               <span key={x} style={{ left: pct(x) }}>
                 {clock(x)}
