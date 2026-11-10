@@ -1,5 +1,6 @@
 // Animated overlays (stickers, lists, counters, UI cards...). Each renders at a centre point
 // (x, y in 0..1 of the frame), with an entrance from the motion library and a short exit.
+import { sampleKeys } from "./keyframes";
 import React from "react";
 import { AbsoluteFill, Easing, Img, useCurrentFrame, useVideoConfig } from "remotion";
 import type { BrandKit, OverlayKind, ReelOverlay } from "./types";
@@ -251,6 +252,12 @@ const DEFAULT_POS: Partial<Record<OverlayKind, [number, number]>> = {
   progressSteps: [0.5, 0.17],
 };
 
+/** Where an overlay sits and how big it is before any keyframes. */
+export function overlayBase(o: ReelOverlay) {
+  const [dx, dy] = DEFAULT_POS[o.kind] || [0.5, 0.36];
+  return { x: o.x ?? dx, y: o.y ?? dy, scale: o.scale ?? 1, rotate: o.rotate ?? 0, opacity: 1 };
+}
+
 /** One overlay placed on the reel. `start`/`end` are OUTPUT seconds. */
 export const OverlayItem: React.FC<{ o: ReelOverlay; brand: BrandKit; start: number; end: number; itemTimes: number[] }> = ({ o, brand, start, end, itemTimes }) => {
   const frame = useCurrentFrame();
@@ -265,8 +272,10 @@ export const OverlayItem: React.FC<{ o: ReelOverlay; brand: BrandKit; start: num
   const fx = enter ? enter.fn(progress(t, 0, enter.duration), 1) : {};
   const exit = 1 - progress(t, dur - 0.2, dur);
   const [dx, dy] = DEFAULT_POS[o.kind] || [0.5, 0.36];
-  const x = (o.x ?? dx) * width;
-  const y = (o.y ?? dy) * height;
+  // keyframes move, resize, turn and fade the overlay over its life
+  const v = sampleKeys(o.keys, t, { x: o.x ?? dx, y: o.y ?? dy, scale: o.scale ?? 1, rotate: o.rotate ?? 0, opacity: 1 });
+  const x = v.x * width;
+  const y = v.y * height;
   const render = RENDERERS[o.kind];
   if (!render) return null;
   return (
@@ -276,8 +285,8 @@ export const OverlayItem: React.FC<{ o: ReelOverlay; brand: BrandKit; start: num
           position: "absolute",
           left: x,
           top: y,
-          transform: `translate(-50%, -50%) rotate(${o.rotate ?? 0}deg) scale(${(o.scale ?? 1) * (0.9 + 0.1 * exit)})`,
-          opacity: exit,
+          transform: `translate(-50%, -50%) rotate(${v.rotate}deg) scale(${v.scale * (0.9 + 0.1 * exit)})`,
+          opacity: exit * Math.min(1, Math.max(0, v.opacity)),
         }}
       >
         <div style={{ transform: fx.transform, opacity: fx.opacity ?? 1, filter: fx.filter, clipPath: fx.clipPath }}>

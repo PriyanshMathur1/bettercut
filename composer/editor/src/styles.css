@@ -105,6 +105,12 @@ details.item summary { cursor: pointer; font-size: 13px; display: flex; justify-
 .tl-bar select { padding: 2px 4px; font-size: 12px; }
 .tl-bar .spacer { flex: 1; }
 .tl-info { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-keys { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
+.tl-keys button { padding: 3px 9px; font-size: 12px; }
+.tl-keys label { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.tl-keys input { width: 62px; padding: 2px 4px; font-size: 12px; }
+.tl-keys select { padding: 2px 4px; font-size: 12px; }
+.tl .shot u, .tl .ov u { position: absolute; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; background: var(--accent); transform: rotate(45deg); border: 1px solid #000; pointer-events: none; }
 .tl-scroll { overflow-x: auto; overflow-y: hidden; }
 .tl-lane { position: relative; height: 78px; min-width: 100%; cursor: pointer; touch-action: none; }
 .tl-ruler { position: absolute; top: 0; left: 0; right: 0; height: 16px; border-bottom: 1px solid var(--line); }

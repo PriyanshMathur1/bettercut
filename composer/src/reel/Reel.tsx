@@ -8,6 +8,7 @@ import {
   outputWords,
   placeSegments,
   cutList,
+  speedOf,
   progress,
   rangeToOutput,
   snapToOutput,
@@ -19,6 +20,7 @@ import { CaptionLayer, PunchLayer } from "./captions/CaptionLayer";
 import { getCaptionStyle } from "./captions/styles";
 import { EFFECT_MAP, combineFX, type FX } from "./motion/effects";
 import { FORMAT_MAP, type FormatLayout } from "./formats";
+import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
 import { GradeOverlay, gradeFilter, primaryApprox } from "./grade";
 import { HookLayer, EndCardLayer } from "./titles";
@@ -143,8 +145,12 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   // ---- camera / transition FX ----------------------------------------------
   const seg: PlacedSegment | undefined = placed.find((s) => t >= s.outStart && t < s.outEnd) || placed[placed.length - 1];
   const fxList: FX[] = [];
+  let camKeys: { zoom: number; cx: number; cy: number } | null = null;
   if (seg) {
-    const z = autoZoomFor(spec.motion?.autoZoom || "off", seg.shot, seg.zoom);
+    // camera keyframes (zoom and focus) override the shot's fixed punch-in
+    const srcNow = Math.min(seg.end, seg.start + (t - seg.outStart) * speedOf(seg));
+    camKeys = sampleKeys(seg.keys, srcNow, { zoom: autoZoomFor(spec.motion?.autoZoom || "off", seg.shot, seg.zoom), cx: seg.cx ?? 0.5, cy: seg.cy ?? 0.4 });
+    const z = camKeys.zoom;
     if (z !== 1) fxList.push({ transform: `scale(${z})` });
     const cam = EFFECT_MAP[spec.motion?.camera || ""];
     if (cam && cam.family === "camera") fxList.push(cam.fn(progress(t, seg.outStart, seg.outEnd), 1));
@@ -177,8 +183,8 @@ export const Reel: React.FC<ReelProps> = (spec) => {
     if (t >= start && t <= start + d) fxList.push(def.fn(progress(t, start, start + d), ev.intensity ?? 1));
   }
   const fx = combineFX(fxList);
-  const originX = (seg?.cx ?? 0.5) * box.w;
-  const originY = (seg?.cy ?? 0.4) * box.h;
+  const originX = (camKeys?.cx ?? seg?.cx ?? 0.5) * box.w;
+  const originY = (camKeys?.cy ?? seg?.cy ?? 0.4) * box.h;
   const gradeS = spec.grade || { preset: "none", vignette: 0, grain: 0 };
   // before the ffmpeg bake exists, preview manual colour controls with a CSS approximation
   const approx = spec.source.graded ? "" : primaryApprox(gradeS);
