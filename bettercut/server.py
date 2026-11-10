@@ -224,6 +224,50 @@ async def add_clips(pid: str, files: list[UploadFile] = File(...), names: str = 
     return {"job": _job("clips", pid, work)["id"]}
 
 
+@app.post("/api/projects/{pid}/angles")
+async def add_angles(pid: str, files: list[UploadFile] = File(...), auto: bool = Form(True)):
+    """Add other cameras of the same shoot. Each is synced to the main footage by sound; then, unless told
+    not to, the reel cuts to whoever is talking."""
+    from . import multicam
+
+    proj = _proj(pid)
+    inputs = proj / "inputs" / f"angles-{int(time.time())}"
+    inputs.mkdir(parents=True)
+    saved = []
+    for f in files:
+        if Path(f.filename or "").suffix.lower() not in VIDEO_EXT:
+            continue
+        dst = inputs / Path(f.filename).name
+        with open(dst, "wb") as fh:
+            shutil.copyfileobj(f.file, fh)
+        media.fix_recording(dst)
+        saved.append(str(dst))
+    if not saved:
+        raise HTTPException(400, "upload at least one video file")
+
+    def work(job, log):
+        _history(proj, pipeline.load(proj))
+        spec = multicam.add_angles(proj, saved, log=log, auto=auto)
+        return {"angles": len(spec.get("angles") or []), "switches": len(spec.get("cams") or [])}
+
+    return {"job": _job("angles", pid, work)["id"]}
+
+
+@app.post("/api/projects/{pid}/autocam")
+def auto_cams(pid: str):
+    """Cut between the reel's cameras to whoever is talking (replaces the current camera switches)."""
+    from . import multicam
+
+    proj = _proj(pid)
+
+    def work(job, log):
+        _history(proj, pipeline.load(proj))
+        spec = multicam.auto_switch(proj, log=log)
+        return {"switches": len(spec.get("cams") or [])}
+
+    return {"job": _job("autocam", pid, work)["id"]}
+
+
 @app.get("/api/projects/{pid}/spec")
 def get_spec(pid: str):
     proj = _proj(pid)

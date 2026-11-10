@@ -1,7 +1,8 @@
 import React from "react";
-import { AbsoluteFill, Freeze, Img, OffthreadVideo, Sequence, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Freeze, Img, OffthreadVideo, Sequence, useVideoConfig } from "remotion";
 import { resolveAsset } from "./asset";
 import type { PlacedSegment } from "./timeline";
+import { cameraPieces, type Angle, type CamCut } from "./multicam";
 
 export interface Box {
   x: number;
@@ -45,12 +46,19 @@ export const FootageTrack: React.FC<{
   volume?: number;
   transparent?: boolean;
   style?: React.CSSProperties;
-}> = ({ placed, src, srcW, srcH, boxW, boxH, fit, muted, volume = 1, transparent, style }) => {
+  /** Multi-camera: other angles and when each is on. The sound always stays the main footage's. */
+  angles?: Angle[];
+  cams?: CamCut[];
+}> = ({ placed, src, srcW, srcH, boxW, boxH, fit, muted, volume = 1, transparent, style, angles, cams }) => {
   const { fps } = useVideoConfig();
   const url = resolveAsset(src);
+  // split shots where the camera changes; each piece knows which angle (if any) to show
+  const pieces = cameraPieces(placed, cams, angles);
   return (
     <AbsoluteFill style={{ overflow: "visible" }}>
-      {placed.map((s) => {
+      {pieces.map((s) => {
+        // the speaker cut-out exists only for the main footage: an angle has no cut-out to draw
+        if (s.cam && transparent) return null;
         const from = Math.round(s.outStart * fps);
         const rate = s.speed && s.speed > 0 ? Math.min(4, Math.max(0.25, s.speed)) : 1;
         const hold = Math.min(10, Math.max(0, s.hold ?? 0));
@@ -60,9 +68,11 @@ export const FootageTrack: React.FC<{
         const r = fitRect(srcW, srcH, boxW, boxH, fit, s.cx ?? 0.5, s.cy ?? 0.42);
         // A reversed shot plays its own backwards file. Source time x sits at (file end - x) in that file.
         const rev = s.reverse && s.reversed && s.reversed.start <= s.start + 0.002 && s.reversed.end >= s.end - 0.002 ? s.reversed : null;
-        const clipUrl = rev ? resolveAsset(rev.src) : url;
-        const trim = rev ? Math.max(0, Math.round((rev.end - s.end) * fps)) : Math.round(s.start * fps);
-        const lastFrame = rev ? Math.max(0, Math.round((rev.end - s.start) * fps) - 1) : Math.max(0, Math.round(s.end * fps) - 1);
+        const shift = s.cam ? s.cam.offset : 0; // main-footage time t is t + offset in the angle's file
+        const clipUrl = s.cam ? resolveAsset(s.cam.src) : rev ? resolveAsset(rev.src) : url;
+        const trim = rev ? Math.max(0, Math.round((rev.end - s.end) * fps)) : Math.max(0, Math.round((s.start + shift) * fps));
+        const lastFrame = rev ? Math.max(0, Math.round((rev.end - s.start) * fps) - 1) : Math.max(0, Math.round((s.end + shift) * fps) - 1);
+        const fade = (f: number) => (muted ? 0 : volume * Math.min(1, (f + 1) / AUDIO_FADE, (dur - f) / AUDIO_FADE));
         const css: React.CSSProperties = { position: "absolute", left: r.left, top: r.top, width: r.width, height: r.height, maxWidth: "none", ...style };
         return (
           <React.Fragment key={`${s.index}-${s.start}`}>
@@ -79,11 +89,13 @@ export const FootageTrack: React.FC<{
               src={clipUrl}
               trimBefore={trim}
               playbackRate={rate}
-              muted={muted}
+              muted={muted || !!s.cam}
               transparent={transparent}
-              volume={(f) => (muted ? 0 : volume * Math.min(1, (f + 1) / AUDIO_FADE, (dur - f) / AUDIO_FADE))}
+              volume={s.cam ? 0 : fade}
               style={css}
             />
+            {/* an angle shows its picture; the sound keeps coming from the main footage */}
+            {s.cam && !muted ? <Audio src={url} trimBefore={Math.round(s.start * fps)} playbackRate={rate} volume={fade} /> : null}
           </Sequence>
           </React.Fragment>
         );

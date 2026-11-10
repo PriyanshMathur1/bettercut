@@ -793,3 +793,62 @@ def test_saving_the_same_thing_again_is_not_a_step(tmp_path, monkeypatch):
     steps = _save(c, "one")  # the editor re-saving what is already there
     assert (steps["canUndo"], steps["canRedo"]) == (False, True)
     assert c.post("/api/projects/p/redo").json()["spec"]["title"] == "two"
+
+
+def _talk(rng, seconds, rate=100, bursts=None):
+    """A loudness track in dB: quiet room, with loud stretches where someone talks."""
+    db = rng.normal(-60, 1.5, int(seconds * rate))
+    for a, b in bursts or []:
+        n = int((b - a) * rate)
+        db[int(a * rate) : int(a * rate) + n] = rng.normal(-20, 4, n)
+    return db
+
+
+def test_angles_line_up_by_their_sound_even_when_one_mic_is_quieter():
+    import numpy as np
+    from bettercut import multicam
+
+    rng = np.random.default_rng(1)
+    bursts = [(1 + i * 1.3, 1.6 + i * 1.3 + (i % 3) * 0.2) for i in range(20)]
+    main = _talk(rng, 30, bursts=bursts)
+    # the angle started 2.37 s earlier and its mic is 12 dB quieter, with its own noise
+    early = int(2.37 * 100)
+    angle = np.concatenate([rng.normal(-60, 1.5, early), main - 12 + rng.normal(0, 1.0, len(main))])
+    offset, score = multicam.find_offset(main, angle)
+    assert abs(offset - 2.37) <= 0.02 and score > multicam.MATCH_OK
+    late = angle[400:]  # an angle that started 1.63 s after the main camera
+    offset, _ = multicam.find_offset(main, late)
+    assert abs(offset - (2.37 - 4.0)) <= 0.02
+    unrelated = _talk(np.random.default_rng(9), 30, bursts=[(5, 9), (20, 22)])
+    assert multicam.find_offset(main, unrelated)[1] < multicam.MATCH_OK  # nothing in common: a weak match, reported as such
+
+
+def test_the_cut_follows_whoever_is_talking_without_flickering():
+    import numpy as np
+    from bettercut import multicam
+
+    rng = np.random.default_rng(2)
+    a = _talk(rng, 12, bursts=[(0, 5), (9, 12)])  # person A talks 0-5 s and 9-12 s
+    b = _talk(rng, 12, bursts=[(5, 9)])  # person B talks 5-9 s
+    cuts = multicam.choose_speakers({"main": a, "cam1": b})
+    assert [c["angle"] for c in cuts] == ["main", "cam1", "main"]
+    assert abs(cuts[1]["at"] - 5.0) <= 0.5 and abs(cuts[2]["at"] - 9.0) <= 0.5
+    hush = _talk(rng, 12, bursts=[(1.2, 5), (9, 12)])  # a second of silence before person A starts
+    cuts = multicam.choose_speakers({"main": hush, "cam1": b})
+    assert cuts[0] == {"at": 0.0, "angle": "main"}  # not whichever camera happened to be a little louder in the silence
+    blip = a.copy()
+    blip[300:330] = -60  # A pauses for 0.3 s: not enough to switch away
+    assert [c["angle"] for c in multicam.choose_speakers({"main": blip, "cam1": _talk(rng, 12)})] == ["main"]
+
+
+def test_a_camera_that_was_not_recording_is_never_chosen_for_that_time():
+    import numpy as np
+    from bettercut import multicam
+
+    main = np.full(500, -30.0)
+    angle = np.full(200, -10.0)  # louder, but only recorded the first 2 s
+    levels = multicam.aligned_levels(main, angle, 0.0)
+    assert np.isnan(levels[300]) and levels[100] == -10.0
+    cuts = multicam.choose_speakers({"main": main, "cam1": levels}, min_shot=0.5)
+    assert cuts[0]["angle"] in ("main", "cam1") and cuts[-1]["angle"] == "main"  # back to main once cam1 stops
+    assert multicam.choose_speakers({}) == []
