@@ -1,7 +1,7 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askNotes, BIN, binItems, cutAfter, cutBefore, groupOf, keepTab, RAIL, railFor, shapeOf, subTabs, TABS, timecode, toggleShape } from "../../editor/src/workspace.ts";
+import { askNotes, BIN, binItems, cutAfter, cutBefore, fmtClock, groupOf, keepTab, RAIL, railFor, shapeOf, subTabs, TABS, timecode, toggleShape, withoutSent } from "../../editor/src/workspace.ts";
 
 test("the rail reaches every panel, each exactly once", () => {
   const onRail = RAIL.flatMap((g) => g.tabs);
@@ -135,4 +135,20 @@ test("previous and next cut step from the playhead", () => {
   assert.equal(cutAfter(cuts, 8, 20), 12);
   assert.equal(cutAfter(cuts, 12, 20), 20);
   assert.equal(cutAfter(cuts, 3, 20), 7.5);
+});
+
+test("a finished Ask removes only the notes it sent", () => {
+  const a = { t: 1, text: "cut this" };
+  const b = { t: null, text: "warmer colour" };
+  const sent = [a, b];
+  const pinnedMeanwhile = { t: 4, text: "cut this" }; // same words as a, pinned while the AI was working
+  assert.deepEqual(withoutSent([a, b, pinnedMeanwhile], sent), [pinnedMeanwhile]);
+  assert.deepEqual(withoutSent([a, b], sent), []);
+  assert.deepEqual(withoutSent([], sent), []);
+});
+
+test("fmtClock shows minutes, seconds and tenths", () => {
+  assert.equal(fmtClock(0), "0:00.0");
+  assert.equal(fmtClock(12.34), "0:12.3");
+  assert.equal(fmtClock(75.06), "1:15.1");
 });

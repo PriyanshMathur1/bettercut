@@ -145,3 +145,15 @@ export function cutAfter(cuts: readonly number[], t: number, end: number, slack 
   for (const c of cuts) if (c > t + slack && c < best) best = c;
   return best;
 }
+
+/** A time as m:ss.s, as shown on notes, the playhead and the Pin button. */
+export const fmtClock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+
+/**
+ * The notes left after a send finishes: the ones that were sent are gone, and anything pinned while the AI
+ * was working stays, to go with the next Ask. Notes are matched by identity, so two notes with the same
+ * words are kept apart.
+ */
+export function withoutSent<N>(current: readonly N[], sent: readonly N[]): N[] {
+  return current.filter((n) => !sent.includes(n));
+}
