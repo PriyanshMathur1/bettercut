@@ -33,7 +33,7 @@ NEUTRAL = {
     "denoise": 0.0,       # 0..100
     "lutStrength": 1.0,   # 0..1
 }
-BAKE_KEYS = list(NEUTRAL) + ["lut", "autoWhiteBalance", "autoExposure", "matchClips"]
+BAKE_KEYS = list(NEUTRAL) + ["lut", "autoWhiteBalance", "autoExposure", "matchClips", "log"]
 
 
 # ---------------------------------------------------------------- LUT library (original looks)
@@ -180,6 +180,13 @@ def build_filter(spec: dict, clip_stats: list[dict] | None = None, luts: dict[st
     if g.get("denoise"):
         d = g["denoise"] / 100
         chain.append(f"hqdn3d={1.5 + 4 * d:.2f}:{1.2 + 3 * d:.2f}:{3 + 6 * d:.2f}:{3 + 6 * d:.2f}")
+    if g.get("log"):
+        # camera log footage: convert to normal colour first, so every later control works on a normal picture
+        from .logprofile import PROFILES, lut_path
+
+        if g["log"] in PROFILES:
+            esc = str(lut_path(g["log"])).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+            chain.append(f"lut3d=file='{esc}':interp=tetrahedral")
     if g.get("autoWhiteBalance"):
         chain.append("format=gbrpf32le,grayworld,format=yuv420p")
     # shot matching across clips (from clips.json) as per-range RGB gain/offset
@@ -220,7 +227,7 @@ def bake_key(spec: dict) -> str:
 def needs_video_bake(spec: dict) -> bool:
     g = spec.get("grade") or {}
     manual = any(g.get(k, v) != v for k, v in NEUTRAL.items() if k != "lutStrength")
-    return bool(manual or g.get("lut") or g.get("autoWhiteBalance") or g.get("autoExposure") or g.get("matchClips") or any(s.get("grade") for s in spec.get("segments", [])))
+    return bool(manual or g.get("lut") or g.get("log") or g.get("autoWhiteBalance") or g.get("autoExposure") or g.get("matchClips") or any(s.get("grade") for s in spec.get("segments", [])))
 
 
 def needs_bake(spec: dict) -> bool:

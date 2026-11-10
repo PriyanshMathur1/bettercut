@@ -539,3 +539,61 @@ def test_beats_are_found_again_only_when_the_music_changes(tmp_path, monkeypatch
     out["audio"].pop("music")
     cleared = render.prepare(out, proj, log=lambda m: None)
     assert "beats" not in cleared["audio"] and "beatsFor" not in cleared["audio"]
+
+
+def test_camera_log_profiles_put_mid_grey_and_black_where_the_makers_say():
+    """Anchors from each maker's published curve: the code value for 18% grey, and for black."""
+    import numpy as np
+    from bettercut import logprofile as L
+
+    for profile, grey, black in (("apple-log", 0.4883, 0.0), ("slog3", 420 / 1023, 95 / 1023), ("vlog", 0.423311, 0.125)):
+        assert abs(float(L.decode(profile, grey)) - 0.18) < 0.002, profile
+        assert float(L.decode(profile, black)) <= 0.001, profile
+        ramp = L.decode(profile, np.linspace(0.05, 0.95, 60))
+        assert np.all(np.diff(ramp) > 0), profile  # brighter in, brighter out
+        out = L.to_rec709(profile, np.array([[grey, grey, grey], [0.3, 0.3, 0.3], [0.7, 0.7, 0.7]]))
+        assert np.allclose(out[:, 0], out[:, 1], atol=1e-3) and np.allclose(out[:, 1], out[:, 2], atol=1e-3), profile  # greys stay grey
+        assert abs(out[0, 0] - 0.409) < 0.01, profile  # 18% grey lands at normal display mid grey
+        assert 0 <= out.min() and out.max() <= 1
+    with pytest.raises(ValueError):
+        L.decode("nope", 0.5)
+
+
+def test_log_conversion_runs_first_in_the_grade_and_forces_a_bake(tmp_path, monkeypatch):
+    from bettercut import colour
+
+    monkeypatch.setattr(colour, "LUT_DIR", tmp_path)
+    spec = {"grade": {"log": "slog3", "exposure": 0.5}, "segments": [], "source": {"src": "x"}}
+    assert colour.needs_video_bake({"grade": {"log": "slog3"}, "segments": []})
+    chain = colour.build_filter(spec, luts={})
+    assert chain.index("log-slog3.cube") < chain.index("exposure=")  # converted before any other control
+    assert (tmp_path / "log-slog3.cube").read_text().splitlines()[1] == "LUT_3D_SIZE 65"
+    assert colour.bake_key(spec) != colour.bake_key({**spec, "grade": {"exposure": 0.5}})
+    assert "log-" not in colour.build_filter({"grade": {"log": "made-up"}, "segments": [], "source": {"src": "x"}}, luts={})
+
+
+def test_green_screen_makes_the_cutout_once_and_removes_it_when_switched_off(tmp_path, monkeypatch):
+    from bettercut import greenscreen as gs
+
+    proj, spec = _reel(tmp_path)
+    made = []
+    monkeypatch.setattr(gs, "detect_color", lambda src: "#12C83A")
+    monkeypatch.setattr(gs, "key_matte", lambda src, out, color, sim, blend: (made.append((color, sim, blend)), out.write_bytes(b"k"), out)[2])
+    assert gs.is_current(spec)  # no green screen: nothing to do
+
+    spec["source"]["key"] = {"similarity": 0.3}
+    spec["source"]["gradedMatte"] = "/old/graded-matte.webm"
+    assert not gs.is_current(spec)
+    keyed = gs.bake(spec, proj, log=lambda m: None)
+    assert made == [("#12C83A", 0.3, 0.08)]  # colour found automatically, other settings defaulted
+    assert Path(keyed["source"]["matte"]).exists() and keyed["source"]["keyColor"] == "#12C83A"
+    assert "gradedMatte" not in keyed["source"] and "baked" not in keyed["grade"]  # baked from the old cut-out
+    assert gs.is_current(keyed) and gs.bake(keyed, proj, log=lambda m: None)["source"]["matte"] == keyed["source"]["matte"] and len(made) == 1
+
+    keyed["source"]["key"]["similarity"] = 9  # out of range: clamped, and a new key is made
+    again = gs.bake(keyed, proj, log=lambda m: None)
+    assert made[-1][1] == 0.6 and again["source"]["matte"] != keyed["source"]["matte"]
+
+    del again["source"]["key"]
+    off = gs.bake(again, proj, log=lambda m: None)
+    assert "matte" not in off["source"] and "keyed" not in off["source"] and gs.is_current(off)

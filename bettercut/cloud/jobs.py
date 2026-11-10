@@ -25,7 +25,8 @@ _threads: list[threading.Thread] = []
 _stop = threading.Event()
 
 # fields a bake/prepare adds to the spec; copied onto the latest version so edits made meanwhile aren't lost
-BAKED_FIELDS = (("source", "graded"), ("source", "gradedMatte"), ("grade", "baked"), ("audio", "beats"), ("audio", "beatsFor"))
+BAKED_FIELDS = (("source", "graded"), ("source", "gradedMatte"), ("grade", "baked"), ("audio", "beats"), ("audio", "beatsFor"),
+               ("source", "matte"), ("source", "keyed"), ("source", "keyColor"))
 
 
 def enqueue(user_id: str, project_id: str | None, kind: str, params: dict) -> str:
