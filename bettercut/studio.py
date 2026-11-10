@@ -28,7 +28,7 @@ def pipelines() -> list[dict]:
     out = []
     for f in sorted(HERE.glob("*.json")):
         out.append(json.loads(f.read_text(encoding="utf-8")))
-    order = ["talking-head", "screen-demo", "multicam", "clip-factory"]
+    order = ["talking-head", "travel-montage", "screen-demo", "multicam", "clip-factory"]
     return sorted(out, key=lambda p: order.index(p["id"]) if p["id"] in order else len(order))
 
 

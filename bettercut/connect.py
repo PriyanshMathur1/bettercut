@@ -24,6 +24,7 @@ from .cloud import agent
 SUPPORTED = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 ASPECTS = ("9x16", "4x5", "1x1", "16x9")
 QUALITIES = ("draft", "high", "max", "master")
+AUDIO_EXT = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".aif", ".aiff"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
 INSTRUCTIONS = (
@@ -96,6 +97,15 @@ TOOLS = [
     _tool("copy_reel", "Make a new reel from one stretch of a reel (SOURCE seconds): the clip factory's way to cut many clips from "
           "one long video. The footage is shared, so it's instant. Returns the new reel's id.",
           {**REEL, "start": {"type": "number"}, "end": {"type": "number"}, "name": {"type": "string"}}, ["reel", "start", "end"]),
+    _tool("look", "See the footage: frames as one labelled image (#n, SOURCE seconds, clip). Pass times (SOURCE seconds, up to "
+          "24) to look at exact moments, or nothing to scan every clip. Use it to pick shots when there are no words to go by "
+          "(scenery, travel, b-roll) and to check a framing or zoom.",
+          {**REEL, "times": {"type": "array", "items": {"type": "number"}}, "per_clip": {"type": "integer", "description": "Frames per clip when scanning (1-6)"}},
+          ["reel"], True),
+    _tool("add_music", "Put a music file from this computer under the reel (it is copied into the reel). Its beats are found at once "
+          "and written to audio.beats (OUTPUT seconds), so you can place cuts on the beat.",
+          {**REEL, "file": {"type": "string", "description": "Full path of an audio file (mp3, m4a, wav, aac, flac, ogg)"},
+           "volume": {"type": "number", "description": "Music level 0..1 (default 0.8; ducks under speech)"}}, ["reel", "file"]),
     _tool("job_status", "Progress of a job (making, adding, rendering). When done, gives the result: the reel id, or the rendered files' paths.",
           {"job": {"type": "string"}}, ["job"], True),
 ]
@@ -161,7 +171,7 @@ def prompt_text(pid: str, args: dict) -> str:
             "(record it with approve_stage, quoting me) or redo what I ask.")
 
 
-def call(name: str, args: dict, base: str) -> str:
+def call(name: str, args: dict, base: str) -> str | dict:
     """Run one tool. Raises Refused with a message the model can act on."""
     from . import pipeline
     from . import server as srv
@@ -287,6 +297,52 @@ def call(name: str, args: dict, base: str) -> str:
     if name == "zoom_on_clicks":
         return json.dumps({"job": srv.auto_zooms(reel)["job"]})
 
+    if name == "look":
+        import base64
+
+        from . import look
+
+        clips = pipeline.clip_list(proj)
+        spec = pipeline.load(proj)
+        times = args.get("times")
+        if times:
+            if not isinstance(times, list) or not all(isinstance(t, (int, float)) for t in times):
+                raise Refused("times must be a list of numbers (SOURCE seconds)")
+            dur = float((spec.get("source") or {}).get("duration") or 0)
+            times = [min(max(0.0, float(t)), max(0.0, dur - 0.1)) for t in times]
+        else:
+            per = min(6, max(1, int(args.get("per_clip") or 3)))
+            times = look.scan_times(clips, per, (spec.get("source") or {}).get("duration"))
+        img, legend = look.sheet(Path(spec["source"]["src"]), times, clips)
+        return {"content": [{"type": "image", "data": base64.b64encode(img).decode(), "mimeType": "image/jpeg"},
+                            {"type": "text", "text": json.dumps({"frames": legend, "note": "times are SOURCE seconds"}, ensure_ascii=False)}]}
+
+    if name == "add_music":
+        import shutil
+
+        from . import render
+
+        f = Path(str(args.get("file") or "")).expanduser()
+        if not f.is_absolute() or not f.is_file():
+            raise Refused(f"no such file (use the full path): {f}")
+        if f.suffix.lower() not in AUDIO_EXT | VIDEO_EXT:
+            raise Refused(f"not an audio file BetterCut reads: {f.name}")
+        dst = proj / "assets" / f"music-{int(time.time())}{f.suffix.lower()}"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, dst)
+        spec = pipeline.load(proj)
+        vol = args.get("volume")
+        a = {**(spec.get("audio") or {}), "music": str(dst)}
+        if isinstance(vol, (int, float)):
+            a["musicVolume"] = round(min(1.0, max(0.0, float(vol))), 3)
+        spec = render.with_beats({**spec, "audio": a}, log=lambda *_: None)
+        srv.save_spec(proj, spec, "agent", f"Music: {f.name}")
+        beats = spec["audio"].get("beats") or []
+        gaps = [b - a for a, b in zip(beats, beats[1:])]
+        beat = round(sorted(gaps)[len(gaps) // 2], 3) if gaps else None
+        return json.dumps({"ok": True, "music": f.name, "beats": len(beats), "beatSeconds": beat, "firstBeats": beats[:16],
+                           "note": "beats are OUTPUT seconds; cut on them (every beat, or every 2 or 4 for a calmer pace)"}, ensure_ascii=False)
+
     if name == "undo":
         head = srv.head_of(proj)
         if head.get("author") != "agent" or head.get("version") != srv.version_of(proj):
@@ -338,13 +394,15 @@ def handle(msg, base: str) -> dict | None:
         if not isinstance(args, dict):
             return _error(mid, -32602, "arguments must be an object")
         try:
-            text, bad = call(str(name), args, base), False
+            out, bad = call(str(name), args, base), False
         except Refused as e:
-            text, bad = f"error: {e}", True
+            out, bad = f"error: {e}", True
         except Exception as e:  # a bug or a failed step: tell the model plainly instead of dropping the call
-            text, bad = f"error: {type(e).__name__}: {e}", True
-        bad = bad or text.startswith("error:")
-        return _result(mid, {"content": [{"type": "text", "text": text}], "isError": bad})
+            out, bad = f"error: {type(e).__name__}: {e}", True
+        if isinstance(out, dict):  # a tool that returns pictures as well as text
+            return _result(mid, {**out, "isError": False})
+        bad = bad or out.startswith("error:")
+        return _result(mid, {"content": [{"type": "text", "text": out}], "isError": bad})
     if method == "prompts/list":
         return _result(mid, {"prompts": prompts()})
     if method == "prompts/get":

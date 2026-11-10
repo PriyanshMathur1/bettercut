@@ -122,23 +122,30 @@ def _props_file(spec: dict, project: Path, srv: AssetServer, extra: dict | None 
     return p
 
 
-def prepare(spec: dict, project: Path, log=print) -> dict:
-    """Bake colour/voice if the settings changed since the last bake; saves the spec when it changes."""
-    from . import colour, pipeline
-
+def with_beats(spec: dict, log=print) -> dict:
+    """The spec with `audio.beats` matching its music (found again when the music changed; removed with it)."""
     a = spec.get("audio") or {}
     if a.get("music") and a.get("beatsFor") != a["music"] and Path(a["music"]).exists():
-        # beats drive the timeline's beat markers and snapping as well as the beat pulse, so find them
-        # whenever the music changes
         from . import timeline
         from .audio import beats, duration, tile_beats
 
         found = tile_beats(beats(Path(a["music"]), max_seconds=600), duration(Path(a["music"])), timeline.total_duration(spec))
-        spec = {**spec, "audio": {**a, "beats": found, "beatsFor": a["music"]}}
         log(f"music: {len(found)} beats found")
-        pipeline.save(project, spec)
-    elif not a.get("music") and (a.get("beats") or a.get("beatsFor")):
-        spec = {**spec, "audio": {k: v for k, v in a.items() if k not in ("beats", "beatsFor")}}
+        return {**spec, "audio": {**a, "beats": found, "beatsFor": a["music"]}}
+    if not a.get("music") and (a.get("beats") or a.get("beatsFor")):
+        return {**spec, "audio": {k: v for k, v in a.items() if k not in ("beats", "beatsFor")}}
+    return spec
+
+
+def prepare(spec: dict, project: Path, log=print) -> dict:
+    """Bake colour/voice if the settings changed since the last bake; saves the spec when it changes."""
+    from . import colour, pipeline
+
+    # beats drive the timeline's beat markers and snapping as well as the beat pulse, so find them whenever
+    # the music changes
+    beat = with_beats(spec, log)
+    if beat is not spec:
+        spec = beat
         pipeline.save(project, spec)
     from . import greenscreen, reverse
 

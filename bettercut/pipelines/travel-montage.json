@@ -1,0 +1,71 @@
+{
+ "id": "travel-montage",
+ "name": "Travel montage",
+ "for": "Trips, treks, events and days out: scenery and moments cut to music, with little or no talking.",
+ "needs": "clips",
+ "stages": [
+  {
+   "id": "brief",
+   "name": "Brief",
+   "approve": true,
+   "goal": "Agree the feel before cutting anything.",
+   "guide": "Scan the footage with look (every clip) and read any words. Write back a short plan: the story order (usually the journey in time order: arrival, the climb, the high point, the way back), the mood (calm, epic, fun), the length (15 to 30 s plays best), the music (ask the creator for a track file if they have one; say so if not), and a title (the place name) and call to action. Name the 3 to 5 best shots you saw by their look number and time. Change nothing yet.",
+   "checklist": [
+    "every clip looked at",
+    "story order and mood named",
+    "the best shots named by time",
+    "music track asked for"
+   ]
+  },
+  {
+   "id": "pick-shots",
+   "name": "Pick shots",
+   "approve": true,
+   "goal": "Keep only the strongest second or two of each moment.",
+   "guide": "Use look on each clip at more times (every 1 to 2 s) to find its best moment: steady, in focus, something happening or a clear view. Replace the segments with short shots (about 1 to 3 s each; a standout view or the high point can hold 3 to 5 s), in story order. Drop shaky, blurry, dark or repeated views, and moments of fumbling with the phone. Keep a line of speech only if it adds to the story (a reaction, the place name) and keep that shot long enough to hear it. Aim slightly over the target length; the beat cut tightens it.",
+   "checklist": [
+    "every shot steady and in focus (checked with look)",
+    "story order kept",
+    "no repeated views",
+    "roughly the target length"
+   ]
+  },
+  {
+   "id": "beat-cut",
+   "name": "Music and beat cut",
+   "approve": true,
+   "goal": "Make the cuts land on the music.",
+   "guide": "If the creator gave a track, add_music it (it reports the beats). Then time the shots to the beats: change each segment's end so its cut lands on a beat (OUTPUT seconds, convert with time_map), cutting every 2 beats for a calm feel or every beat for energy, faster in the build and slower at the high point. If there is no music, keep a steady rhythm of about 1.5 to 2 s per shot and say that music would lift it. Set the music volume so any kept speech stays clear.",
+   "checklist": [
+    "music under the whole reel (or asked for)",
+    "cuts land on beats",
+    "pace changes with the story"
+   ]
+  },
+  {
+   "id": "finish",
+   "name": "Finish",
+   "approve": true,
+   "goal": "Make it look like one film.",
+   "guide": "Pick one look and grade for the whole reel so the clips match (list_options looks, grades); travel usually suits warm or film looks. Put the place name as a title over the first or the high-point shot, and captions only on kept speech. A gentle camera push-in on still views helps; avoid effects on moving shots. Set the end card with the call to action. Then look at the finished cut at each shot's middle to check framing.",
+   "checklist": [
+    "one look across every clip",
+    "place name title",
+    "framing checked with look",
+    "end card with the call to action"
+   ]
+  },
+  {
+   "id": "export",
+   "name": "Export",
+   "approve": false,
+   "goal": "Hand over files that are ready to post.",
+   "guide": "Render a draft first and wait for it (job_status). Read the QA issues in its result and fix any that matter, then render at high quality in the shapes the creator needs (9x16 for Reels, Shorts and TikTok). Give the creator the file paths and the editor link.",
+   "checklist": [
+    "draft QA issues checked",
+    "final render done in every shape asked for",
+    "file paths given to the creator"
+   ]
+  }
+ ]
+}

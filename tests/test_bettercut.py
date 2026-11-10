@@ -1110,7 +1110,7 @@ def test_every_pipeline_is_well_formed_and_ends_in_an_export():
     from bettercut import studio
 
     ps = studio.pipelines()
-    assert [p["id"] for p in ps] == ["talking-head", "screen-demo", "multicam", "clip-factory"]
+    assert [p["id"] for p in ps] == ["talking-head", "travel-montage", "screen-demo", "multicam", "clip-factory"]
     for p in ps:
         assert p["name"] and p["for"] and len(p["stages"]) >= 4
         ids = [s["id"] for s in p["stages"]]
@@ -1189,7 +1189,7 @@ def test_claude_runs_a_pipeline_and_the_editor_can_approve(tmp_path, monkeypatch
     init = _rpc(c, "initialize", {"protocolVersion": "2025-06-18"}).json()["result"]
     assert "prompts" in init["capabilities"]
     prompts = _rpc(c, "prompts/list").json()["result"]["prompts"]
-    assert [p["name"] for p in prompts][:2] == ["talking-head", "screen-demo"]
+    assert [p["name"] for p in prompts][:2] == ["talking-head", "travel-montage"]
     msg = _rpc(c, "prompts/get", {"name": "screen-demo", "arguments": {"brief": "30 s demo", "clips": "/a.mov, /b.mov"}}).json()["result"]["messages"][0]
     assert "screen-demo pipeline" in msg["content"]["text"] and "/a.mov, /b.mov" in msg["content"]["text"]
     assert "error" in _rpc(c, "prompts/get", {"name": "nope"}).json()
@@ -1261,3 +1261,52 @@ def test_clips_named_one_by_one_keep_their_order(tmp_path):
     assert media.find_clips([str(a), str(b)]) == [a, b]  # the order given
     assert media.find_clips([str(tmp_path)]) == [b, a]  # a folder: oldest first
     assert media.find_clips([str(a), str(b)], newest=1) == [a]
+
+
+
+# ---- seeing the footage, and music ----
+
+def test_claude_can_look_at_the_footage_and_add_music(tmp_path, monkeypatch):
+    import base64
+    import io
+    import json as _json
+    import subprocess
+
+    from PIL import Image
+
+    from bettercut import look, pipeline
+
+    c = _editor(tmp_path, monkeypatch)
+    c.base_url = "http://127.0.0.1:4790"
+    src = tmp_path / "p" / "source.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=180x320:d=4:r=10", "-f", "lavfi", "-i",
+                    "sine=f=220:d=4", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src)], check=True)
+    spec = pipeline.load(tmp_path / "p")
+    spec["source"] = {"src": str(src), "duration": 4.0}
+    spec["segments"] = [{"id": "s1", "start": 0.0, "end": 4.0}]  # beats are laid across the reel's length
+    pipeline.save(tmp_path / "p", spec)
+    (tmp_path / "p" / "work" / "clips.json").write_text(_json.dumps({"clips": [{"clip": "a.mov", "start": 0, "duration": 2}, {"clip": "b.mov", "start": 2, "duration": 2}]}))
+
+    assert look.scan_times([{"start": 0, "seconds": 2}, {"start": 2, "seconds": 2}], 3) == [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]
+    assert len(look.scan_times([{"start": i, "seconds": 1} for i in range(40)], 3)) == look.MAX_FRAMES
+
+    res = _rpc(c, "tools/call", {"name": "look", "arguments": {"reel": "p"}}).json()["result"]
+    assert not res["isError"] and res["content"][0]["type"] == "image"
+    img = Image.open(io.BytesIO(base64.b64decode(res["content"][0]["data"])))
+    assert img.format == "JPEG" and img.width > 300
+    legend = _json.loads(res["content"][1]["text"])["frames"]
+    assert [f["clip"] for f in legend] == ["a.mov"] * 3 + ["b.mov"] * 3
+    res = _rpc(c, "tools/call", {"name": "look", "arguments": {"reel": "p", "times": [1, 99]}}).json()["result"]
+    assert [f["at"] for f in _json.loads(res["content"][1]["text"])["frames"]] == [1.0, 3.9]  # clamped inside the footage
+    assert _tool(c, "look", reel="p", times=["x"])[1]
+
+    music = tmp_path / "song.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "aevalsrc='sin(2*PI*80*t)*exp(-30*mod(t,0.5))':d=8:s=22050", str(music)], check=True)
+    text, bad = _tool(c, "add_music", reel="p", file=str(music), volume=0.6)
+    assert not bad, text
+    out = _json.loads(text)
+    assert out["beats"] > 4 and abs(out["beatSeconds"] - 0.5) < 0.06  # a click every half second
+    a = c.get("/api/projects/p/spec").json()["spec"]["audio"]
+    assert a["music"].endswith(".wav") and "/p/assets/music-" in a["music"] and a["musicVolume"] == 0.6 and a["beatsFor"] == a["music"]
+    assert c.get("/api/projects/p/head").json()["author"] == "agent"
+    assert "not an audio file" in _tool(c, "add_music", reel="p", file=str(tmp_path / "p" / "spec.json"))[0]
