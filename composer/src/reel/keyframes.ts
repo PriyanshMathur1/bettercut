@@ -4,7 +4,7 @@
 // is animated on its own, from the keys that mention it, so a key that only sets `scale` leaves `x` alone.
 // `at` means: for an overlay, seconds since it appeared; for a shot, SOURCE seconds in the footage.
 
-export type Ease = "smooth" | "linear" | "hold";
+export type Ease = "smooth" | "linear" | "hold" | "back";
 
 export interface Key {
   at: number;
@@ -14,6 +14,11 @@ export interface Key {
 }
 
 const smooth = (p: number) => p * p * (3 - 2 * p);
+/** Eases out and overshoots the target a little before settling on it. */
+const back = (p: number) => {
+  const c1 = 1.70158;
+  return 1 + (c1 + 1) * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+};
 const round = (v: number, d = 3) => Math.round(v * 10 ** d) / 10 ** d;
 
 /** Value of every property in `base` at time `at`. With no keys for a property, its base value is kept. */
@@ -30,7 +35,7 @@ export function sampleKeys<T extends Record<string, number>>(keys: Key[] | undef
       const a = ks[i];
       const b = ks[i + 1];
       const p = (at - a.at) / (b.at - a.at);
-      const e = a.ease === "hold" ? 0 : a.ease === "linear" ? p : smooth(p);
+      const e = a.ease === "hold" ? 0 : a.ease === "linear" ? p : a.ease === "back" ? back(p) : smooth(p);
       out[prop] = (a[prop] as number) + ((b[prop] as number) - (a[prop] as number)) * e;
     }
   }
