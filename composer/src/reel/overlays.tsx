@@ -9,6 +9,10 @@ import { font } from "./fonts";
 import { progress } from "./timeline";
 import { resolveAsset } from "./asset";
 import { kOf, withAlpha } from "./brand";
+import { barLengths, countUp, parseStat, parseStats, ringFill, stagger } from "./cards";
+
+/** Decimal places in a number, so a value written as 4.5 counts up showing one decimal. */
+const decimalsOf = (v: number) => (Number.isInteger(v) ? 0 : Math.min(3, String(v).split(".")[1]?.length ?? 0));
 
 const outBack = Easing.out(Easing.back(1.7));
 const outC = Easing.out(Easing.cubic);
@@ -226,11 +230,151 @@ const RENDERERS: Record<OverlayKind, (p: OverlayRender) => React.ReactNode> = {
       <div style={{ fontFamily: font("Inter"), fontWeight: 600, fontSize: 42 * k, lineHeight: 1.3, color: "#111", marginTop: 20 * k }}>{o.text}</div>
     </div>
   ),
+
+  // ---- motion cards ---------------------------------------------------------------------------
+  // A ring that fills to `value` percent, with the number counting up in the middle.
+  donut: ({ o, brand, t, k }) => {
+    const e = outC(progress(t, 0.15, 1.35));
+    const r = 120;
+    const len = 2 * Math.PI * r;
+    const stat = { prefix: o.prefix || "", value: o.value ?? 0, places: decimalsOf(o.value ?? 0), suffix: o.suffix ?? "%", label: "" };
+    return (
+      <div style={{ ...card(k), textAlign: "center", padding: `${34 * k}px ${44 * k}px` }}>
+        <div style={{ position: "relative", width: 300 * k, height: 300 * k, margin: "0 auto" }}>
+          <svg viewBox="0 0 300 300" width={300 * k} height={300 * k} style={{ display: "block" }}>
+            <circle cx="150" cy="150" r={r} fill="none" stroke="#ECECEC" strokeWidth="34" />
+            <circle cx="150" cy="150" r={r} fill="none" stroke={o.color || brand.primary} strokeWidth="34" strokeLinecap="round" strokeDasharray={len} strokeDashoffset={len * (1 - ringFill(o.value) * e)} transform="rotate(-90 150 150)" />
+          </svg>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font("Unbounded"), fontWeight: 900, fontSize: 72 * k, color: "#111" }}>{countUp(stat, e)}</div>
+        </div>
+        {o.text ? <div style={{ fontFamily: font(brand.headingFont), fontWeight: 900, fontSize: 44 * k, color: "#111", marginTop: 16 * k }}>{o.text}</div> : null}
+        {o.subtitle ? <div style={{ fontFamily: font("Inter"), fontWeight: 600, fontSize: 30 * k, color: "#666", marginTop: 6 * k }}>{o.subtitle}</div> : null}
+      </div>
+    );
+  },
+  // A horizontal bar chart from lines like "Instagram: 42". Bars grow one after another.
+  bars: ({ o, brand, t, k }) => {
+    const stats = parseStats(o.items);
+    const lengths = barLengths(stats);
+    return (
+      <div style={{ ...card(k), width: 840 * k }}>
+        {o.text ? <div style={{ fontFamily: font(brand.headingFont), fontWeight: 900, fontSize: 50 * k, color: "#111", marginBottom: 22 * k }}>{o.text}</div> : null}
+        {stats.map((s, i) => {
+          const e = outC(progress(t, stagger(i, stats.length), stagger(i, stats.length) + 0.7));
+          return (
+            <div key={i} style={{ margin: `${14 * k}px 0` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: font("Inter"), fontWeight: 700, fontSize: 34 * k, color: "#333", marginBottom: 8 * k }}>
+                <span>{s.label}</span>
+                <span style={{ color: "#111", fontWeight: 900 }}>{countUp(s, e)}</span>
+              </div>
+              <div style={{ height: 30 * k, borderRadius: 999, background: "#EEE", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${lengths[i] * e * 100}%`, borderRadius: 999, background: i === 0 ? o.color || brand.primary : withAlpha(o.color || brand.primary, 0.55) }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  },
+  // Up to four big numbers side by side, from lines like "+38% Watch time". Each pops in and counts up.
+  metrics: ({ o, brand, t, k }) => {
+    const stats = parseStats(o.items).slice(0, 4);
+    const n = Math.max(1, stats.length);
+    return (
+      <div style={{ width: 960 * k }}>
+        {o.text ? <div style={{ fontFamily: font(brand.headingFont), fontWeight: 900, fontSize: 52 * k, color: "#FFF", textAlign: "center", marginBottom: 20 * k, textShadow: "0 6px 24px rgba(0,0,0,.5)" }}>{o.text}</div> : null}
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${n}, 1fr)`, gap: 18 * k }}>
+          {stats.map((s, i) => {
+            const at = stagger(i, n, 0.15, 0.6);
+            const pop = outBack(progress(t, at, at + 0.45));
+            const e = outC(progress(t, at, at + 1.1));
+            return (
+              <div key={i} style={{ ...card(k), padding: `${26 * k}px ${16 * k}px`, textAlign: "center", transform: `scale(${pop})`, opacity: Math.min(1, pop * 2) }}>
+                <div style={{ fontFamily: font("Unbounded"), fontWeight: 900, fontSize: (n > 3 ? 54 : 64) * k, color: o.color || brand.primary, lineHeight: 1.05 }}>{countUp(s, e)}</div>
+                <div style={{ fontFamily: font("Inter"), fontWeight: 700, fontSize: 28 * k, color: "#444", marginTop: 10 * k }}>{s.label}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  },
+  // A chapter marker: a large number, a line that draws across, and the chapter's title.
+  chapter: ({ o, brand, t, k }) => {
+    const line = outC(progress(t, 0.1, 0.6));
+    const words = outC(progress(t, 0.35, 0.85));
+    const num = String(Math.max(0, Math.round(o.value ?? 1))).padStart(2, "0");
+    return (
+      <div style={{ width: 860 * k, color: "#FFF", textShadow: "0 6px 26px rgba(0,0,0,.55)" }}>
+        <div style={{ fontFamily: font("Unbounded"), fontWeight: 900, fontSize: 150 * k, lineHeight: 0.9, color: o.color || brand.accent }}>{num}</div>
+        <div style={{ height: 10 * k, width: `${line * 100}%`, background: o.color || brand.accent, borderRadius: 99, margin: `${18 * k}px 0` }} />
+        <div style={{ opacity: words, transform: `translateY(${(1 - words) * 30 * k}px)` }}>
+          <div style={{ fontFamily: font(brand.headingFont), fontWeight: 900, fontSize: 76 * k, lineHeight: 1.05 }}>{o.text}</div>
+          {o.subtitle ? <div style={{ fontFamily: font("Inter"), fontWeight: 600, fontSize: 36 * k, marginTop: 10 * k, opacity: 0.85 }}>{o.subtitle}</div> : null}
+        </div>
+      </div>
+    );
+  },
+  // A big word filled with a moving gradient of the brand's two colours.
+  gradientWord: ({ o, brand, t, k }) => {
+    const shift = (t * 40) % 200;
+    const len = Math.max(1, (o.text || "").length);
+    return (
+      <div
+        style={{
+          fontFamily: font(brand.headingFont),
+          fontWeight: 900,
+          fontSize: 170 * k * Math.min(1, 8 / len),
+          lineHeight: 1,
+          textTransform: "uppercase",
+          letterSpacing: -3 * k,
+          whiteSpace: "nowrap",
+          backgroundImage: `linear-gradient(100deg, ${brand.primary}, ${brand.accent}, ${brand.primary})`,
+          backgroundSize: "200% 100%",
+          backgroundPosition: `${shift}% 50%`,
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent",
+          filter: "drop-shadow(0 8px 22px rgba(0,0,0,.45))",
+        }}
+      >
+        {o.text}
+      </div>
+    );
+  },
+  // Before and after: two stats side by side, from lines like "Before: 2 hrs" and "After: 10 min".
+  compare: ({ o, brand, t, k }) => {
+    const [a, b] = [parseStat((o.items || [])[0] || "Before: 0"), parseStat((o.items || [])[1] || "After: 0")];
+    const left = outC(progress(t, 0.1, 0.5));
+    const right = outBack(progress(t, 0.55, 1.0));
+    const tile = (s: typeof a, hot: boolean, e: number): React.ReactNode => (
+      <div style={{ ...card(k), flex: 1, textAlign: "center", padding: `${28 * k}px ${18 * k}px`, background: hot ? o.color || brand.primary : "#FFF" }}>
+        <div style={{ fontFamily: font("Inter"), fontWeight: 800, fontSize: 30 * k, color: hot ? "#FFF" : "#666", textTransform: "uppercase", letterSpacing: 2 * k }}>{s.label}</div>
+        <div style={{ fontFamily: font("Unbounded"), fontWeight: 900, fontSize: 70 * k, color: hot ? "#FFF" : "#111", marginTop: 8 * k }}>{Number.isNaN(s.value) ? s.suffix : countUp(s, e)}</div>
+      </div>
+    );
+    return (
+      <div style={{ width: 900 * k }}>
+        {o.text ? <div style={{ fontFamily: font(brand.headingFont), fontWeight: 900, fontSize: 52 * k, color: "#FFF", textAlign: "center", marginBottom: 20 * k, textShadow: "0 6px 24px rgba(0,0,0,.5)" }}>{o.text}</div> : null}
+        <div style={{ display: "flex", alignItems: "center", gap: 18 * k }}>
+          <div style={{ flex: 1, display: "flex", opacity: left, transform: `translateX(${(1 - left) * -60 * k}px)` }}>{tile(a, false, left)}</div>
+          <div style={{ fontSize: 64 * k, color: "#FFF", opacity: right, textShadow: "0 4px 14px rgba(0,0,0,.5)" }}>→</div>
+          <div style={{ flex: 1, display: "flex", transform: `scale(${right})`, opacity: Math.min(1, right * 2) }}>{tile(b, true, right)}</div>
+        </div>
+      </div>
+    );
+  },
 };
 
 export const OVERLAY_KINDS = Object.keys(RENDERERS) as OverlayKind[];
 
 const DEFAULT_ENTER: Partial<Record<OverlayKind, string>> = {
+  donut: "fade",
+  bars: "fade",
+  metrics: "fade",
+  chapter: "fade",
+  gradientWord: "scale-down",
+  compare: "fade",
   emoji: "pop",
   sticker: "spin-pop",
   lowerThird: "fade",
@@ -244,6 +388,8 @@ const DEFAULT_ENTER: Partial<Record<OverlayKind, string>> = {
 };
 
 const DEFAULT_POS: Partial<Record<OverlayKind, [number, number]>> = {
+  chapter: [0.5, 0.42],
+  gradientWord: [0.5, 0.3],
   lowerThird: [0.36, 0.66],
   notification: [0.5, 0.17],
   emoji: [0.78, 0.3],
