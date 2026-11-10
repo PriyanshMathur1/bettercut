@@ -24,7 +24,7 @@ import { TranslationLine } from "./captions/TranslationLine";
 import { translationAt } from "./translate";
 import { LayerItem } from "./LayerItem";
 import { drawOrder, layerVolume, playable } from "./layers";
-import { filterFor } from "./clipfx";
+import { blurRadius, filterFor } from "./clipfx";
 import { FxDefs, FxOverlays } from "./EffectLayers";
 import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
@@ -150,7 +150,15 @@ export const Reel: React.FC<ReelProps> = (spec) => {
 
   // ---- camera / transition FX ----------------------------------------------
   const seg: PlacedSegment | undefined = placed.find((s) => t >= s.outStart && t < s.outEnd) || placed[placed.length - 1];
+  // Effects of the shot on screen. Past the end of the footage `seg` is the last shot, whose final frame
+  // stays frozen behind the end card, so its effects stay too.
+  const shotFx = seg?.effects;
+  const fxK = kOf(W, H); // the same scale captions and overlays use, so effects match in every aspect ratio
+  const shotFilter = filterFor(shotFx, fxK, "shot");
   const fxList: FX[] = [];
+  // blurring softens the picture's edges into black: enlarge it so those edges fall outside the frame
+  const shotBlur = blurRadius(shotFx, fxK);
+  if (shotBlur > 0) fxList.push({ transform: `scale(${(1 + (3 * shotBlur) / Math.min(box.w, box.h)).toFixed(4)})` });
   let camKeys: { zoom: number; cx: number; cy: number } | null = null;
   if (seg) {
     // camera keyframes (zoom and focus) override the shot's fixed punch-in
@@ -194,9 +202,9 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   const gradeS = spec.grade || { preset: "none", vignette: 0, grain: 0 };
   // before the ffmpeg bake exists, preview manual colour controls with a CSS approximation
   const approx = spec.source.graded ? "" : primaryApprox(gradeS);
-  // the effect stack of the shot on screen, after the grade
-  const shotFx = t < body ? seg?.effects : undefined; // not over the end card
-  const gFilter = [approx, gradeFilter(gradeS), layout.footageFilter, fx.filter, filterFor(shotFx, W / 1080, "shot")].filter(Boolean).join(" ");
+  // The effect stack of the shot on screen, after the grade. It goes on every copy of the footage (the
+  // main picture, the blurred fill behind it, the cut-out), so they always match.
+  const gFilter = [approx, gradeFilter(gradeS), layout.footageFilter, fx.filter, shotFilter].filter(Boolean).join(" ");
 
   const inBody = t < body;
   const showMatte = hasMatte && (layout.matteOnly || layout.colourPop || layout.breakoutAbove !== undefined || spec.captions?.behindHead || (activeBroll?.b.mode === "behind") || spec.format?.id === "magazine");
@@ -323,7 +331,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
 
       {layout.blurFill && inBody ? (
         <AbsoluteFill style={{ overflow: "hidden" }}>
-          <div style={{ position: "absolute", inset: -60, filter: "blur(40px) brightness(.55) saturate(1.2)" }}>
+          <div style={{ position: "absolute", inset: -60, filter: [shotFilter, "blur(40px) brightness(.55) saturate(1.2)"].filter(Boolean).join(" ") }}>
             <FootageTrack placed={placed} src={spec.source.graded || spec.source.src} srcW={srcW} srcH={srcH} boxW={W + 120} boxH={H + 120} fit="cover" muted />
           </div>
         </AbsoluteFill>
@@ -350,7 +358,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
         <>
           {/* voice still comes from the original */}
           <div style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}>{footage({})}</div>
-          {matteLayer(undefined, gradeFilter(spec.grade))}
+          {matteLayer(undefined, [gradeFilter(spec.grade), shotFilter].filter(Boolean).join(" "))}
         </>
       ) : null}
 
@@ -380,11 +388,11 @@ export const Reel: React.FC<ReelProps> = (spec) => {
       {inBody && behind ? <PunchLayer words={words} brand={brand} style={capStyle} settings={captionSettings} /> : null}
 
       {inBody && showMatte && !layout.matteOnly
-        ? matteLayer(layout.breakoutAbove !== undefined ? `inset(-100% -50% ${box.h - 1}px -50%)` : undefined, layout.colourPop ? gradeFilter(spec.grade) : gFilter)
+        ? matteLayer(layout.breakoutAbove !== undefined ? `inset(-100% -50% ${box.h - 1}px -50%)` : undefined, layout.colourPop ? [gradeFilter(spec.grade), shotFilter].filter(Boolean).join(" ") : gFilter)
         : null}
 
       <GradeOverlay grade={spec.grade || { preset: "none", vignette: 0, grain: 0 }} />
-      <FxDefs effects={shotFx} k={W / 1080} uid="shot" />
+      <FxDefs effects={shotFx} k={fxK} uid="shot" />
       {shotFx ? (
         <AbsoluteFill style={{ pointerEvents: "none" }}>
           <FxOverlays effects={shotFx} uid="shot" />

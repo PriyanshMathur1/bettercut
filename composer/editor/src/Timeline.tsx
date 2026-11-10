@@ -8,7 +8,7 @@ import { effectsByFamily } from "../../src/reel/motion/effects";
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
 import { layerBase, layerVolume, moveTrack, playable, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
-import { addFx, amountOf, CLIP_FX, DUOTONE_DEFAULT, FX_MAP, removeFx, setFx, type ClipEffect } from "../../src/reel/clipfx";
+import { addFx, amountOf, CLIP_FX, DUOTONE_DEFAULT, FX_MAP, listFx, removeFx, setFx, type ClipEffect } from "../../src/reel/clipfx";
 import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
 const TRANSITIONS = effectsByFamily("transition");
@@ -55,15 +55,34 @@ const NumField: React.FC<{ value: number; onChange: (v: number) => void; step: n
 };
 
 /** The effect stack of the selected shot or layer: add an effect, set its strength, remove it. Applied left to right. */
-const FxRow: React.FC<{ what: string; effects: ClipEffect[] | undefined; onChange: (effects: ClipEffect[] | undefined) => void }> = ({ what, effects, onChange }) => {
-  const list = effects || [];
+const FxRow: React.FC<{ what: string; effects: ClipEffect[] | undefined; onChange: (effects: ClipEffect[] | undefined) => void; reel?: { vignette?: number; grain?: number } }> = ({
+  what,
+  effects,
+  onChange,
+  reel,
+}) => {
+  const list = listFx(effects);
   const set = (next: ClipEffect[]) => onChange(next.length ? next : undefined);
+  // the reel's look can already add a vignette or grain to everything: say so, or the two just pile up unexplained
+  const doubled = [
+    reel?.vignette && list.some((e) => e.type === "vignette") ? "a vignette" : "",
+    reel?.grain && list.some((e) => e.type === "grain") ? "film grain" : "",
+  ].filter(Boolean);
   return (
     <div className="tl-keys">
       <span className="tl-info">Effects</span>
       {list.map((e, i) => {
         const def = FX_MAP[e.type];
-        if (!def) return null;
+        if (!def)
+          return (
+            // written by hand or by an AI edit with a name this editor doesn't know: it does nothing, and can be removed
+            <span className="fx-chip" key={`${e.type}-${i}`} title="This editor doesn't know this effect, so it has no result">
+              <label>Unknown effect "{e.type}"</label>
+              <button className="x" onClick={() => set(removeFx(list, i))} aria-label={`Remove unknown effect ${e.type}`}>
+                ×
+              </button>
+            </span>
+          );
         return (
           <span className="fx-chip" key={`${e.type}-${i}`}>
             <label title={`How strong ${def.name.toLowerCase()} is, from 0 to 1`}>
@@ -96,6 +115,7 @@ const FxRow: React.FC<{ what: string; effects: ClipEffect[] | undefined; onChang
           </option>
         ))}
       </select>
+      {doubled.length ? <span className="tl-info">The reel's look already adds {doubled.join(" and ")} to every shot (Colour tab), so this adds to it.</span> : null}
     </div>
   );
 };
@@ -706,7 +726,7 @@ export const Timeline: React.FC<{
         />
       ) : null}
       {!selLayer && !selOv && selected && sel !== null ? (
-        <FxRow what="shot" effects={selected.effects} onChange={(effects) => update((s) => ({ ...s, segments: patchShot(s.segments, sel, { effects }) }))} />
+        <FxRow what="shot" effects={selected.effects} reel={spec.grade} onChange={(effects) => update((s) => ({ ...s, segments: patchShot(s.segments, sel, { effects }) }))} />
       ) : null}
       <div className="tl-scroll">
         <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%`, height: laneHeight }} onPointerDown={scrub}>

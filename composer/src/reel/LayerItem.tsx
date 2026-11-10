@@ -4,6 +4,7 @@ import { resolveAsset } from "./asset";
 import { sampleKeys } from "./keyframes";
 import { layerBase, layerVolume, playable, type Layer } from "./layers";
 import { filterFor } from "./clipfx";
+import { kOf } from "./brand";
 import { FxDefs, FxOverlays } from "./EffectLayers";
 
 /**
@@ -38,11 +39,11 @@ export const LayerItem: React.FC<{ layer: Layer; start: number; end: number; uid
     width: w,
     transform: `translate(-50%, -50%) rotate(${v.rotate}deg)`,
     opacity: Math.min(1, Math.max(0, v.opacity)),
-    borderRadius: Math.min(0.5, Math.max(0, layer.radius ?? 0)) * w,
-    overflow: "hidden",
   };
+  // rounded corners clip the picture, and the grain and vignette, but not the effects around it
+  const clip: React.CSSProperties = { position: "relative", borderRadius: Math.min(0.5, Math.max(0, layer.radius ?? 0)) * w, overflow: "hidden" };
   // the layer's effect stack: filters on the picture, grain and vignette inside its box
-  const k = width / 1080;
+  const k = kOf(width, height); // the same scale captions and overlays use, so effects match in every aspect ratio
   const fx = filterFor(layer.effects, k, uid);
   const media: React.CSSProperties = { display: "block", width: "100%", height: "auto" };
   return (
@@ -50,10 +51,13 @@ export const LayerItem: React.FC<{ layer: Layer; start: number; end: number; uid
       <AbsoluteFill style={{ pointerEvents: "none" }}>
         <FxDefs effects={layer.effects} k={k} uid={uid} />
         <div style={box}>
+          {/* the filter sits outside the clip, so a glow or a blur can spread past the layer's edges */}
           <div style={fx ? { filter: fx } : undefined}>
-            {layer.kind === "image" ? <Img src={src} style={media} /> : <OffthreadVideo src={src} trimBefore={trim} muted={volume === 0} volume={volume} style={media} />}
+            <div style={clip}>
+              {layer.kind === "image" ? <Img src={src} style={media} /> : <OffthreadVideo src={src} trimBefore={trim} muted={volume === 0} volume={volume} style={media} />}
+              <FxOverlays effects={layer.effects} uid={uid} />
+            </div>
           </div>
-          <FxOverlays effects={layer.effects} uid={uid} />
         </div>
       </AbsoluteFill>
     </Sequence>
