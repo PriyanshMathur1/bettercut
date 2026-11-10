@@ -86,6 +86,8 @@ def make(
     segments = autocut.build_segments(words, info["duration"], max_gap=max_gap, silences=sil)
     if silent:  # no voice (b-roll, music, screen recording): nothing to cut on, so keep all of it, one shot per clip
         segments = whole_clip_shots(clip_list(project), info["duration"])
+    else:  # some clips talk, some are scenery: keep the scenery clips whole
+        segments = fill_quiet_clips(segments, clip_list(project), words, info["duration"])
     if reframe:
         from . import vision
 
@@ -166,6 +168,8 @@ def add_clips(
         words = enrich.pick_emphasis(words, keywords=names)
         words = enrich.attach_emoji(words)
         segments = autocut.build_segments(words, info["duration"], max_gap=max_gap, silences=sil)
+        new_clips = [{"start": c["start"], "seconds": c["duration"]} for c in info.get("clips", [])]
+        segments = fill_quiet_clips(segments, new_clips, words, info["duration"])  # scenery clips stay whole
     else:
         log("no speech in the new footage: keeping all of it, with no captions")
         segments = [{"start": 0.0, "end": round(info["duration"], 3)}]
@@ -212,6 +216,27 @@ def clip_list(project: Path) -> list[dict]:
     except (ValueError, AttributeError):
         return []
     return [{"name": c.get("clip") or Path(str(c.get("path", "clip"))).name, "start": float(c.get("start", 0)), "seconds": float(c.get("duration", 0))} for c in clips]
+
+
+def fill_quiet_clips(segments: list[dict], clips: list[dict], words: list[dict], duration: float, min_len: float = 0.5) -> list[dict]:
+    """Keep every clip that has no speech as a whole shot. Without this, a vlog's scenery (a waterfall, a view)
+    would be cut away because nobody talks over it. Clips with speech keep their speech cuts."""
+    kept = [w for w in words if not w.get("cut")]
+    out = list(segments)
+    used = {s.get("id") for s in out}
+    n = 0
+    for c in clips:
+        a, b = round(c["start"], 3), round(min(duration, c["start"] + c["seconds"]), 3)
+        if b - a < min_len or any(a <= w["start"] < b for w in kept):
+            continue
+        if any(s["start"] < b and s["end"] > a for s in out):
+            continue  # a speech shot already reaches into this clip
+        n += 1
+        while f"q{n}" in used:
+            n += 1
+        out.append({"id": f"q{n}", "start": a, "end": b})
+        used.add(f"q{n}")
+    return sorted(out, key=lambda s: s["start"])
 
 
 def whole_clip_shots(clips: list[dict], duration: float) -> list[dict]:

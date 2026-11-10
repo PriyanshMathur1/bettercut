@@ -75,17 +75,44 @@ def fix_recording(path: str | Path) -> Path:
 
 
 def find_clips(paths: list[str], newest: int | None = None) -> list[Path]:
+    """The video files to use. Files named one by one keep the order they were given in (that is the edit's
+    order); a folder's videos, or the `newest` few, go oldest first."""
     files: list[Path] = []
+    folder = False
     for p in paths:
         pp = Path(p).expanduser()
         if pp.is_dir():
+            folder = True
             files += [f for f in pp.iterdir() if f.suffix.lower() in VIDEO_EXT]
         elif pp.exists():
             files.append(pp)
-    files.sort(key=lambda f: f.stat().st_mtime)
+    if folder or newest:
+        files.sort(key=lambda f: f.stat().st_mtime)
     if newest:
         files = files[-newest:]
     return files
+
+
+def real_word(text: str) -> bool:
+    """A word with at least one letter or digit. Whisper sometimes "hears" marks and dots in noise."""
+    import unicodedata
+
+    return any(unicodedata.category(ch)[0] in "LN" for ch in text)
+
+
+def plausible(avg_logprob: float, no_speech_prob: float, compression_ratio: float, texts: list[str]) -> bool:
+    """Whether a passage Whisper returned is likely real speech, not something it made up from wind, water or
+    traffic. Made-up passages are low-confidence, often flagged as no speech, and repeat themselves."""
+    if compression_ratio > 2.4:  # the same few tokens over and over
+        return False
+    if avg_logprob < -1.3 or (avg_logprob < -0.8 and no_speech_prob > 0.5):
+        return False
+    real = [t for t in texts if real_word(t)]
+    if len(texts) >= 4 and len(real) < len(texts) / 2:
+        return False
+    if len(real) >= 6 and len({t.lower() for t in real}) <= len(real) * 0.25:
+        return False
+    return True
 
 
 def assemble(clips: list[Path], out: Path, width: int = 1080, height: int = 1920, fps: int = 30, stabilize: bool = False) -> dict:
@@ -244,12 +271,19 @@ def transcribe(path: Path, model_size: str = "small", language: str | None = Non
             condition_on_previous_text=False,
         )
         ws, ss = [], []
+        dropped = 0
         for seg in segments:
+            texts = [w.word.strip() for w in seg.words or [] if w.word.strip()]
+            if not plausible(seg.avg_logprob, seg.no_speech_prob, seg.compression_ratio, texts):
+                dropped += 1
+                continue
             ss.append({"text": seg.text, "start": seg.start + offset, "end": seg.end + offset})
             for w in seg.words or []:
                 text = w.word.strip()
-                if text:
+                if text and real_word(text):
                     ws.append({"text": text, "start": round(w.start + offset, 3), "end": round(w.end + offset, 3)})
+        if dropped:
+            log(f"ignored {dropped} passage(s) that sounded like noise, not speech")
         return ws, ss, info
 
     words, segs, info = run(str(path), 0.0, full_prompt, language)
