@@ -19,6 +19,8 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **Keyframes.** Animate an overlay's position, size, rotation and opacity, or a shot's zoom and focus point, between keyframes you set on the timeline.
 - **Translated captions.** Add a second language, one line per sentence. Show both languages or the translation only. Type the lines yourself or ask your AI to translate the reel.
 - **Beat markers.** Add music and the timeline shows its beats. The playhead and trimmed cuts snap to them, and one click cuts a shot on every beat, every second beat or every fourth.
+- **Camera log footage.** Pick Apple Log, Sony S-Log3 or Panasonic V-Log and the flat picture is converted to normal colour.
+- **Green screen.** Remove a flat backdrop, with the colour found for you, and put any background behind the subject.
 - **Add clips later.** Append more footage to a reel you have already edited; only the new clips are transcribed.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.
@@ -100,7 +102,7 @@ cd composer && npm test
 
 This is a young project. What has been checked and what has not:
 
-- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 88 Python tests and 35 Node tests.
+- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 91 Python tests and 35 Node tests.
 - Not yet checked: the Docker image has not been built, hosted Google sign-in has not been run against a live Supabase
   project, and the connector has been exercised with direct calls only, not yet from Claude.ai or ChatGPT.
 

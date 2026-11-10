@@ -181,6 +181,8 @@ export interface MotionSettings {
 export interface GradeSettings {
   /** Creative CSS look layered on top of the baked grade. */
   preset: string;
+  /** Camera log profile of the footage ("apple-log", "slog3", "vlog"): converted to normal colour first. */
+  log?: string;
   /** Baked grade (see bettercut/colour.py): LUT + primary correction. */
   lut?: string;
   lutStrength?: number;
@@ -253,6 +255,11 @@ export interface ReelSource {
   /** Colour-graded (baked) copy of src and matte; used instead of src/matte when present. */
   graded?: string;
   gradedMatte?: string;
+  /** Green screen: key this backdrop colour out to make the cut-out. `color` is a hex colour or "auto". */
+  key?: { color?: string; similarity?: number; blend?: number };
+  /** Written by the pipeline: which key settings the current matte was made with, and the colour it found. */
+  keyed?: string;
+  keyColor?: string;
   width: number;
   height: number;
   duration: number;

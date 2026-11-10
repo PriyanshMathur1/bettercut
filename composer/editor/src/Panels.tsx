@@ -87,6 +87,80 @@ const DEFAULT_OVERLAY: Record<string, Partial<ReelOverlay>> = {
   postCard: { text: "Something worth saying in a post." },
 };
 
+const CAMERA_PROFILES: [string, string][] = [
+  ["", "Normal footage"],
+  ["apple-log", "Apple Log (iPhone 15 Pro and later)"],
+  ["slog3", "Sony S-Log3 / S-Gamut3.Cine"],
+  ["vlog", "Panasonic V-Log / V-Gamut"],
+];
+
+/** Green screen: key a flat backdrop out of the footage so it becomes the reel's cut-out. */
+const GreenScreen: React.FC<{ spec: ReelSpec; update: Update; pid: string }> = ({ spec, update, pid }) => {
+  const k = spec.source.key;
+  const [job, setJob] = useState<Job | null>(null);
+  const busy = job?.status === "running";
+  const setKey = (patch: Partial<NonNullable<ReelSpec["source"]["key"]>> | null) =>
+    update((s) => {
+      const { key: _old, ...rest } = s.source;
+      return { ...s, source: patch === null ? rest : { ...rest, key: { color: "auto", similarity: 0.28, blend: 0.08, ...s.source.key, ...patch } } };
+    });
+  const apply = async () => {
+    await new Promise((r) => setTimeout(r, 800)); // let autosave land
+    const r = await api.bake(pid);
+    watchJob(r.job, async (j) => {
+      setJob(j);
+      if (j.status !== "done") return;
+      const baked = j.result?.spec || (await api.spec(pid)).spec;
+      update(() => baked);
+    });
+  };
+  const cutoutFromSpeaker = !!spec.source.matte && !spec.source.keyed && !k;
+  if (cutoutFromSpeaker) return null; // this reel already has a speaker cutout
+  return (
+    <div className="greenscreen">
+      <h4>
+        Green screen <small>{spec.source.keyed && k ? `backdrop ${spec.source.keyColor || ""} removed` : "shot against a flat colour?"}</small>
+      </h4>
+      {!k ? (
+        <button onClick={() => setKey({})}>Remove the backdrop</button>
+      ) : (
+        <>
+          <div className="controls">
+            <Field label="Backdrop colour">
+              <select value={k.color === "auto" || !k.color ? "auto" : "pick"} onChange={(e) => setKey({ color: e.target.value === "auto" ? "auto" : spec.source.keyColor || "#00B140" })}>
+                <option value="auto">Find it for me</option>
+                <option value="pick">Choose</option>
+              </select>
+            </Field>
+            {k.color && k.color !== "auto" ? (
+              <Field label="Colour">
+                <input type="color" value={k.color} onChange={(e) => setKey({ color: e.target.value.toUpperCase() })} />
+              </Field>
+            ) : null}
+            <Slider label="How much to remove" value={k.similarity ?? 0.28} min={0.05} max={0.6} step={0.01} onChange={(v) => setKey({ similarity: v })} />
+            <Slider label="Edge softness" value={k.blend ?? 0.08} min={0} max={0.4} step={0.01} onChange={(v) => setKey({ blend: v })} />
+          </div>
+          <div className="row">
+            <button className="primary" disabled={busy} onClick={apply}>
+              {busy ? "Removing the backdrop…" : spec.source.keyed ? "Apply changes" : "Remove the backdrop"}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => {
+                setKey(null);
+                apply();
+              }}
+            >
+              Turn off
+            </button>
+          </div>
+          <small className="hint">Then pick the Green Screen layout below and set a background. Layouts that need a cutout work too.</small>
+        </>
+      )}
+    </div>
+  );
+};
+
 /** Captions in a second language: one line per sentence, typed here or filled in by the user's AI. */
 const Translation: React.FC<{ spec: ReelSpec; update: (fn: (s: ReelSpec) => ReelSpec) => void }> = ({ spec, update }) => {
   const tr = spec.captions.translation;
@@ -209,6 +283,7 @@ export const Panel: React.FC<PanelProps> = ({ tab, spec, update, catalog, pid, s
     const f = spec.format;
     return (
       <>
+        <GreenScreen spec={spec} update={update} pid={pid} />
         <div className="controls">
           <Field label="Headline">
             <input value={f.headline || ""} placeholder="Shown by framed formats" onChange={(e) => set("format", { headline: e.target.value })} />
@@ -460,6 +535,18 @@ const ColourPanel: React.FC<{ spec: ReelSpec; update: Update; catalog: Catalog; 
   const stale = !!spec.source.graded && g.baked !== undefined;
   return (
     <>
+      <div className="controls">
+        <Field label="Camera profile">
+          <select value={g.log || ""} onChange={(e) => update((s) => ({ ...s, grade: (({ log: _old, ...rest }) => (e.target.value ? { ...rest, log: e.target.value } : rest))(s.grade) as ReelSpec["grade"] }))}>
+            {CAMERA_PROFILES.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      {g.log ? <small className="hint">Log footage is converted to normal colour when you bake. The preview stays flat until then.</small> : null}
       <div className="row">
         <button
           className="primary"

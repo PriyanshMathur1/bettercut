@@ -140,8 +140,11 @@ def prepare(spec: dict, project: Path, log=print) -> dict:
     elif not a.get("music") and (a.get("beats") or a.get("beatsFor")):
         spec = {**spec, "audio": {k: v for k, v in a.items() if k not in ("beats", "beatsFor")}}
         pipeline.save(project, spec)
-    from . import reverse
+    from . import greenscreen, reverse
 
+    if not greenscreen.is_current(spec):  # before colour: the graded cut-out is made from this one
+        spec = greenscreen.bake(spec, project, log=log)
+        pipeline.save(project, spec)
     if not colour.is_current(spec):
         spec = colour.bake(spec, project, log=log)
         pipeline.save(project, spec)
