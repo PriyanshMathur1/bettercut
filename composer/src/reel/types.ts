@@ -1,3 +1,4 @@
+import type { Key } from "./keyframes";
 // ReelSpec: the single JSON document that fully describes a reel.
 // The pipeline writes it, the editor UI and Claude edit it, Remotion renders it.
 // All times are SOURCE seconds (position in the original clip) unless named `out*`,
@@ -36,6 +37,8 @@ export interface ReelSegment {
   reverse?: boolean;
   /** The reversed file for this shot and the stretch of footage it covers (written by the pipeline). */
   reversed?: { src: string; start: number; end: number; of?: string };
+  /** Camera keyframes for this shot: `at` is SOURCE seconds; properties `zoom`, `cx`, `cy`. */
+  keys?: Key[];
   /** Transition into this shot (an effect id, or "none"). Unset = the reel's default cut transition. */
   transition?: string;
   /** Continues the previous shot seamlessly (a speed-ramp step): no cut transition, sound or punch-in change. */
@@ -117,6 +120,8 @@ export interface ReelOverlay {
   text?: string;
   subtitle?: string;
   items?: string[];
+  /** Keyframes: `at` is seconds since the overlay appeared; properties `x`, `y`, `scale`, `rotate`, `opacity`. */
+  keys?: Key[];
   /** Per-item reveal times (source seconds) for lists. */
   itemTimes?: number[];
   value?: number;

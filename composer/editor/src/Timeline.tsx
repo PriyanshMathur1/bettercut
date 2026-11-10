@@ -4,7 +4,102 @@ import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } fro
 import { baseOf, freezeAt, moveShot, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit";
 import { effectsByFamily } from "../../src/reel/motion/effects";
 
+import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
+import { overlayBase } from "../../src/reel/overlays";
+import { toOutput } from "../../src/reel/timeline";
+
 const TRANSITIONS = effectsByFamily("transition");
+
+type Field = { id: string; label: string; step: number; min?: number; max?: number };
+const OVERLAY_FIELDS: Field[] = [
+  { id: "x", label: "X", step: 0.02, min: 0, max: 1 },
+  { id: "y", label: "Y", step: 0.02, min: 0, max: 1 },
+  { id: "scale", label: "Size", step: 0.05, min: 0.1, max: 5 },
+  { id: "rotate", label: "Turn", step: 5, min: -360, max: 360 },
+  { id: "opacity", label: "Opacity", step: 0.1, min: 0, max: 1 },
+];
+const SHOT_FIELDS: Field[] = [
+  { id: "zoom", label: "Zoom", step: 0.05, min: 1, max: 4 },
+  { id: "cx", label: "Focus X", step: 0.02, min: 0, max: 1 },
+  { id: "cy", label: "Focus Y", step: 0.02, min: 0, max: 1 },
+];
+
+/** Keyframe controls for whatever is selected: add a keyframe at the playhead, edit its values, step between keyframes. */
+const KeyRow: React.FC<{
+  what: string;
+  keys: Key[] | undefined;
+  at: number | null;
+  base: Record<string, number>;
+  fields: Field[];
+  onChange: (keys: Key[] | undefined) => void;
+  onGo: (at: number) => void;
+}> = ({ what, keys, at, base, fields, onChange, onGo }) => {
+  const list = keys || [];
+  if (at === null)
+    return (
+      <div className="tl-keys">
+        <span className="tl-info">
+          Keyframes: move the playhead onto this {what} to add one{list.length ? ` (${list.length} so far)` : ""}
+        </span>
+      </div>
+    );
+  const i = nearestKey(list, at);
+  const now = sampleKeys(list, at, base);
+  const prev = [...list].reverse().find((k) => k.at < at - 0.05);
+  const next = list.find((k) => k.at > at + 0.05);
+  return (
+    <div className="tl-keys">
+      <span className="tl-info">Keyframes</span>
+      <button onClick={() => prev && onGo(prev.at)} disabled={!prev} title="Go to the previous keyframe" aria-label="Previous keyframe">
+        ◀
+      </button>
+      <button onClick={() => next && onGo(next.at)} disabled={!next} title="Go to the next keyframe" aria-label="Next keyframe">
+        ▶
+      </button>
+      {i < 0 ? (
+        <button onClick={() => onChange(setKey(list, at, now))} title={`Record how this ${what} looks at the playhead. Add another one elsewhere and it animates between them.`}>
+          Add keyframe here
+        </button>
+      ) : (
+        <>
+          {fields.map((f) => (
+            <label key={f.id}>
+              {f.label}
+              <input
+                type="number"
+                step={f.step}
+                min={f.min}
+                max={f.max}
+                value={Number(((list[i][f.id] as number | undefined) ?? now[f.id]).toFixed(3))}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) onChange(setKey(list, list[i].at, { [f.id]: v }));
+                }}
+              />
+            </label>
+          ))}
+          <label title="How the values travel from this keyframe to the next">
+            Motion
+            <select value={(list[i].ease as Ease) || "smooth"} onChange={(e) => onChange(setKey(list, list[i].at, { ease: e.target.value as Ease }))}>
+              <option value="smooth">Smooth</option>
+              <option value="linear">Steady</option>
+              <option value="hold">Jump</option>
+            </select>
+          </label>
+          <button
+            onClick={() => {
+              const rest = removeKey(list, i);
+              onChange(rest.length ? rest : undefined);
+            }}
+          >
+            Remove keyframe
+          </button>
+        </>
+      )}
+      <span className="tl-info">{list.length ? `${list.length} keyframe${list.length === 1 ? "" : "s"}` : "none yet"}</span>
+    </div>
+  );
+};
 type Extra = { kind: "overlays" | "broll"; i: number };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -161,6 +256,15 @@ export const Timeline: React.FC<{
     window.addEventListener("pointerup", up);
   };
 
+  // ---- keyframes for the selection ------------------------------------------------
+  const selOv = extra?.kind === "overlays" ? overlays.find((x) => x.i === extra.i) : undefined;
+  const ovAt = selOv && t >= selOv.r.start - 0.001 && t <= selOv.r.end + 0.001 ? Math.max(0, t - selOv.r.start) : null;
+  const srcNow = t < body ? toSource(placed, t) : null;
+  const shotAtPlayhead = selected && srcNow !== null && srcNow >= selected.start - 0.001 && srcNow <= selected.end + 0.001 ? srcNow : null;
+  const setOverlayKeys = (keys: Key[] | undefined) =>
+    selOv && update((s) => ({ ...s, overlays: s.overlays.map((o, j) => (j === selOv.i ? (keys ? { ...o, keys } : (({ keys: _drop, ...rest }) => rest)(o)) : o)) }));
+  const setShotKeys = (keys: Key[] | undefined) => sel !== null && update((s) => ({ ...s, segments: patchShot(s.segments, sel, { keys }) }));
+
   const step = tickStep(duration, zoom);
   const ticks = Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
 
@@ -301,6 +405,22 @@ export const Timeline: React.FC<{
           +
         </button>
       </div>
+      {selOv ? (
+        <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
+      ) : selected ? (
+        <KeyRow
+          what="shot"
+          keys={selected.keys}
+          at={shotAtPlayhead}
+          base={{ zoom: selected.zoom ?? 1, cx: selected.cx ?? 0.5, cy: selected.cy ?? 0.4 }}
+          fields={SHOT_FIELDS}
+          onChange={setShotKeys}
+          onGo={(at) => {
+            const o = toOutput(placed, at);
+            if (o !== null) onSeek(o);
+          }}
+        />
+      ) : null}
       <div className="tl-scroll">
         <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%` }} onPointerDown={scrub}>
           <div className="tl-ruler">
@@ -330,6 +450,11 @@ export const Timeline: React.FC<{
                     {speedOf(p) !== 1 ? `${speedOf(p)}×` : ""}
                   </i>
                 ) : null}
+                {(p.keys || [])
+                  .filter((k) => k.at >= p.start && k.at <= p.end)
+                  .map((k) => (
+                    <u key={k.at} style={{ left: `${(((k.at - p.start) / speedOf(p)) / (p.outEnd - p.outStart)) * 100}%` }} />
+                  ))}
                 {p.hold ? <b style={{ width: `${(Math.min(10, p.hold) / (p.outEnd - p.outStart)) * 100}%` }} title={`Freeze frame, ${p.hold}s`} /> : null}
               </div>
             ))}
@@ -351,6 +476,9 @@ export const Timeline: React.FC<{
                 onPointerDown={dragExtra("overlays", i, r)}
               >
                 {o.kind}
+                {(o.keys || []).map((k) => (
+                  <u key={k.at} style={{ left: `${Math.min(100, (k.at / (r.end - r.start)) * 100)}%` }} />
+                ))}
               </div>
             ))}
             {broll.map(({ b, i, r }) => (

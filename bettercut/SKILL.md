@@ -36,7 +36,7 @@ Projects live in `~/bettercut-projects/<project>/` (override with `BETTERCUT_PRO
 
 ## spec.json (times are SOURCE seconds unless named out*)
 - `source {src, matte?, width, height, duration, fps}`. `matte` = cut-out VP9 webm, enables behind-head.
-- `segments[] {start, end, zoom?, cx?, cy?, speed?, hold?, join?}`: the shots, played in listed order (reorder the list to reorder the reel; shots must not overlap in the source). `speed` 0.25..4. `hold` = freeze the last frame for N seconds. `join: true` = continues the previous shot with no cut (speed-ramp steps). `reverse: true` = play the shot backwards (the pipeline writes `reversed` on the next bake or render; never set `reversed` by hand). `transition` = effect id for the cut into this shot, or "none"; unset uses `motion.cutTransition`. `zoom` = punch-in for
+- `segments[] {start, end, zoom?, cx?, cy?, speed?, hold?, join?}`: the shots, played in listed order (reorder the list to reorder the reel; shots must not overlap in the source). `speed` 0.25..4. `hold` = freeze the last frame for N seconds. `join: true` = continues the previous shot with no cut (speed-ramp steps). `keys[] {at, zoom?, cx?, cy?, ease?}` = camera keyframes for the shot (`at` in SOURCE seconds; ease: smooth, linear or hold). `reverse: true` = play the shot backwards (the pipeline writes `reversed` on the next bake or render; never set `reversed` by hand). `transition` = effect id for the cut into this shot, or "none"; unset uses `motion.cutTransition`. `zoom` = punch-in for
   that shot, `cx/cy` = focus (0..1).
 - `words[] {text, start, end, cut?, emphasis?, emoji?, breakAfter?}`. `cut: true` removes the word AND the
   gap after it. `emphasis` = punch word (bigger/accent; behind the head when `captions.behindHead`).
@@ -45,6 +45,7 @@ Projects live in `~/bettercut-projects/<project>/` (override with `BETTERCUT_PRO
 - `hook {text, style, duration, subtitle?}` first seconds title. `endCard {enabled, style, text, subtitle?, duration}`
 - `overlays[] {kind, start, end, x?, y?, scale?, rotate?, enter?, text?, subtitle?, items?, itemTimes?, value?, prefix?, suffix?, src?, emoji?, color?, tiers?, sfx?}`
   x/y = centre, 0..1 of the frame. Keep y between 0.12 and 0.76 (Instagram safe zone).
+- Overlays also take `keys[] {at, x?, y?, scale?, rotate?, opacity?, ease?}`: keyframes, `at` in seconds since the overlay appeared. Each property animates between the keys that set it.
 - `broll[] {src, start, end, mode: full|split|pip|card|behind, from?, kind?}`
 - `motion {autoZoom: off|subtle|alternate|punchy, cutTransition, camera, events[] {effect, at, duration?, intensity?}}`
 - `grade {preset, vignette 0..1, grain 0..1}` (creative CSS look on top) plus the BAKED grade (ffmpeg, true colour):
