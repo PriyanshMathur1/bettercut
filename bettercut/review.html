@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Review · BetterCut</title>
+<style>
+  :root { --bg: #0e0f12; --panel: #17191e; --panel-2: #1f2229; --line: #2a2e37; --text: #e9eaee; --dim: #9aa0ad; --accent: #ffd34d; --done: #5fbf8a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  header { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .brand { color: var(--accent); font-weight: 700; }
+  .dim { color: var(--dim); }
+  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden; align-self: start; }
+  video { display: block; width: 100%; max-height: 72vh; background: #000; }
+  .hit { position: absolute; left: 0; right: 0; top: 0; bottom: 56px; cursor: crosshair; }
+  .pin { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; background: var(--accent); color: #111;
+         font: 700 12px/24px system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 3px rgba(0,0,0,.45); pointer-events: none; }
+  .pin.draft { background: #fff; }
+  .pin.done { background: var(--done); }
+  .marks { position: relative; height: 10px; margin: 8px 0 0; background: var(--panel-2); border-radius: 5px; }
+  .marks i { position: absolute; top: 0; width: 4px; height: 10px; margin-left: -2px; background: var(--accent); border-radius: 2px; cursor: pointer; }
+  .marks i.done { background: var(--done); }
+  .marks b { position: absolute; top: -2px; width: 2px; height: 14px; background: #fff; }
+  aside { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  aside h2 { font-size: 14px; margin: 0; }
+  form { display: grid; gap: 8px; background: var(--panel-2); border-radius: 8px; padding: 10px; }
+  input, textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row .grow { flex: 1; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; overflow: auto; max-height: 60vh; }
+  li { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; cursor: pointer; border: 1px solid transparent; }
+  li:hover, li.here { border-color: var(--accent); }
+  li .meta { display: flex; gap: 8px; font-size: 12px; color: var(--dim); }
+  li .n { color: var(--accent); font-weight: 700; }
+  li.done .n { color: var(--done); }
+  li .text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+  .err { color: #ff8a7a; }
+  .empty { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="brand">BetterCut</span>
+    <h1 id="title">Review</h1>
+    <span class="dim" id="version"></span>
+  </header>
+  <section>
+    <div class="stage" id="stage">
+      <video id="video" controls playsinline preload="metadata"></video>
+      <div class="hit" id="hit" title="Click the picture to comment on that spot"></div>
+    </div>
+    <div class="marks" id="marks" aria-label="Comments along the video"></div>
+    <p class="dim">Pause anywhere and click the picture to pin a comment to that spot, or comment on the whole frame.</p>
+  </section>
+  <aside>
+    <h2>Comments</h2>
+    <form id="form" autocomplete="off">
+      <div class="row"><strong id="when">At 0:00.0</strong><span class="dim" id="where">· whole frame</span></div>
+      <textarea id="text" maxlength="2000" placeholder="What should change here?" required></textarea>
+      <div class="row">
+        <input id="name" class="grow" maxlength="60" placeholder="Your name">
+        <button type="button" id="clear" title="Comment on the whole frame instead of one spot">Whole frame</button>
+        <button type="submit" class="primary" id="post">Post</button>
+      </div>
+      <div class="err" id="err" role="alert"></div>
+    </form>
+    <ol id="list"></ol>
+  </aside>
+</main>
+<script>
+(() => {
+  const token = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+  const api = "/api/review/" + encodeURIComponent(token);
+  const $ = (id) => document.getElementById(id);
+  const video = $("video"), hit = $("hit"), stage = $("stage"), marks = $("marks"), list = $("list");
+  let comments = [], draft = null, version = null;
+  try { $("name").value = localStorage.getItem("bc.reviewer") || ""; } catch {}
+
+  const clock = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  /** The picture's box inside the video element (the video is letterboxed when its shape differs). */
+  const picture = () => {
+    const r = video.getBoundingClientRect();
+    const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+    const s = Math.min(r.width / vw, r.height / vh);
+    const w = vw * s, h = vh * s;
+    return { left: (r.width - w) / 2, top: (r.height - h) / 2, w, h };
+  };
+
+  const pinsNow = () => {
+    stage.querySelectorAll(".pin").forEach((p) => p.remove());
+    const box = picture(), t = video.currentTime;
+    const show = (c, label, cls) => {
+      const p = el("div", "pin " + cls, label);
+      p.style.left = box.left + c.x * box.w + "px";
+      p.style.top = box.top + c.y * box.h + "px";
+      stage.appendChild(p);
+    };
+    comments.forEach((c, i) => { if (c.x != null && Math.abs(c.at - t) < 0.6) show(c, String(i + 1), c.done ? "done" : ""); });
+    if (draft && draft.x != null) show(draft, "+", "draft");
+    list.querySelectorAll("li").forEach((li) => li.classList.toggle("here", Math.abs(Number(li.dataset.at) - t) < 0.6));
+    const head = marks.querySelector("b");
+    if (head && video.duration) head.style.left = (t / video.duration) * 100 + "%";
+  };
+
+  const draw = () => {
+    list.textContent = "";
+    marks.textContent = "";
+    if (!comments.length) list.appendChild(el("li", "empty", "No comments yet."));
+    comments.forEach((c, i) => {
+      const li = el("li", c.done ? "done" : "");
+      li.dataset.at = c.at;
+      const meta = el("div", "meta");
+      meta.append(el("span", "n", "#" + (i + 1)), el("span", "", clock(c.at)), el("span", "", c.name));
+      if (c.done) meta.append(el("span", "", "· resolved"));
+      if (version && c.version && c.version !== version) meta.append(el("span", "", "· earlier version"));
+      li.append(meta, el("div", "text", c.text));
+      li.onclick = () => { video.pause(); video.currentTime = c.at; };
+      list.appendChild(li);
+      if (video.duration) {
+        const m = el("i", c.done ? "done" : "");
+        m.style.left = (Math.min(c.at, video.duration) / video.duration) * 100 + "%";
+        m.title = `${clock(c.at)} ${c.name}: ${c.text.slice(0, 80)}`;
+        m.onclick = li.onclick;
+        marks.appendChild(m);
+      }
+    });
+    marks.appendChild(el("b"));
+    pinsNow();
+  };
+
+  const setDraft = (x, y) => {
+    draft = { at: video.currentTime, x, y };
+    $("when").textContent = "At " + clock(draft.at);
+    $("where").textContent = x == null ? "· whole frame" : "· pinned to a spot";
+    pinsNow();
+  };
+
+  const load = async () => {
+    const r = await fetch(api, { cache: "no-store" });
+    if (!r.ok) {
+      const msg = (await r.json().catch(() => ({}))).detail || "This review link doesn't work.";
+      document.querySelector("main").replaceChildren(el("p", "err", msg));
+      return false;
+    }
+    const d = await r.json();
+    document.title = d.title + " · Review";
+    $("title").textContent = d.title;
+    if (!d.version) {
+      $("version").textContent = "Nothing has been rendered yet. Check back soon.";
+    } else {
+      if (d.version !== version) {
+        const at = video.currentTime;
+        video.src = api + "/video?v=" + encodeURIComponent(d.version);
+        if (at) video.currentTime = at;
+      }
+      $("version").textContent = d.version;
+    }
+    version = d.version;
+    comments = d.comments || [];
+    draw();
+    return true;
+  };
+
+  hit.addEventListener("click", (e) => {
+    const box = picture(), r = video.getBoundingClientRect();
+    const x = (e.clientX - r.left - box.left) / box.w, y = (e.clientY - r.top - box.top) / box.h;
+    video.pause();
+    if (x < 0 || x > 1 || y < 0 || y > 1) setDraft(null, null);
+    else setDraft(Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4);
+    $("text").focus();
+  });
+  $("clear").onclick = () => setDraft(null, null);
+  video.addEventListener("timeupdate", () => { if (!draft || video.paused === false) { $("when").textContent = "At " + clock(video.currentTime); } pinsNow(); });
+  video.addEventListener("seeked", pinsNow);
+  video.addEventListener("loadedmetadata", draw);
+  window.addEventListener("resize", pinsNow);
+  video.addEventListener("play", () => { draft = null; $("where").textContent = "· whole frame"; pinsNow(); });
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = $("text").value.trim(), name = $("name").value.trim();
+    if (!text) return;
+    try { localStorage.setItem("bc.reviewer", name); } catch {}
+    const d = draft || { at: video.currentTime, x: null, y: null };
+    $("post").disabled = true;
+    $("err").textContent = "";
+    try {
+      const r = await fetch(api + "/comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, text, at: d.at, x: d.x, y: d.y }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Couldn't post the comment.");
+      $("text").value = "";
+      draft = null;
+      $("where").textContent = "· whole frame";
+      await load();
+    } catch (err) {
+      $("err").textContent = err.message;
+    } finally {
+      $("post").disabled = false;
+    }
+  });
+
+  load().then((ok) => { if (ok) setInterval(() => { if (document.visibilityState === "visible") load().catch(() => {}); }, 10000); });
+})();
+</script>
+</body>
+</html>

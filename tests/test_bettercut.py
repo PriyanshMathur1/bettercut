@@ -906,3 +906,56 @@ def test_screen_zooms_from_a_real_video_file(tmp_path):
                     "-i", "-", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "12", str(path)], input=stack.tobytes(), check=True)
     zooms = screenzoom.find_zooms(path)
     assert len(zooms) == 2 and zooms[0]["x"] < 0.25 and zooms[1]["x"] > 0.7
+
+
+# ---- review links ----
+
+def test_a_review_link_shows_the_latest_render_and_takes_comments_on_a_spot(tmp_path, monkeypatch):
+    import os
+    import time
+
+    c = _editor(tmp_path, monkeypatch)
+    assert c.get("/api/projects/p/review").json() == {"token": None, "comments": [], "render": None}
+    token = c.post("/api/projects/p/review").json()["token"]
+    assert token and c.post("/api/projects/p/review").json()["token"] == token  # the same link until stopped
+    assert c.get(f"/review/{token}").status_code == 200
+    assert c.get(f"/api/review/{token}/video").status_code == 404  # nothing rendered yet
+
+    renders = tmp_path / "p" / "renders"
+    renders.mkdir()
+    (renders / "p-v1.mp4").write_bytes(b"old")
+    (renders / "p-v2.mp4").write_bytes(b"new")
+    (renders / "p-v2-phone.mp4").write_bytes(b"phone")
+    now = time.time()
+    os.utime(renders / "p-v1.mp4", (now - 100, now - 100))
+    os.utime(renders / "p-v2-phone.mp4", (now + 100, now + 100))  # the phone copy is never the one reviewed
+    d = c.get(f"/api/review/{token}").json()
+    assert d["version"] == "p-v2.mp4" and d["comments"] == []
+    v = c.get(f"/api/review/{token}/video")
+    assert v.content == b"new" and v.headers["cache-control"] == "no-store"
+
+    r = c.post(f"/api/review/{token}/comments", json={"name": "  Sam  ", "text": "logo too small", "at": 3.25, "x": 0.9, "y": 1.7})
+    assert r.status_code == 200
+    first = r.json()
+    assert (first["name"], first["at"], first["x"], first["y"], first["version"], first["done"]) == ("Sam", 3.25, 0.9, 1.0, "p-v2.mp4", False)
+    c.post(f"/api/review/{token}/comments", json={"text": "great hook", "at": 0.5})  # whole frame, no name
+    assert c.post(f"/api/review/{token}/comments", json={"text": "   ", "at": 1}).status_code == 400
+    assert c.post(f"/api/review/{token}/comments", json={"text": "x", "at": -1}).status_code == 400
+
+    got = c.get("/api/projects/p/review").json()["comments"]
+    assert [(x["at"], x["name"], x["x"]) for x in got] == [(0.5, "Reviewer", None), (3.25, "Sam", 0.9)]  # in time order
+    got = c.post(f"/api/projects/p/review/comments/{first['id']}", json={"done": True}).json()["comments"]
+    assert [x["done"] for x in got] == [False, True]
+    assert len(c.delete(f"/api/projects/p/review/comments/{first['id']}").json()["comments"]) == 1
+    assert c.delete("/api/projects/p/review/comments/nope").status_code == 404
+
+    # reviewers can't resolve or delete: those routes need the project, which the link doesn't give
+    assert c.post(f"/api/review/{token}/comments/{got[0]['id']}", json={"done": True}).status_code in (404, 405)
+
+    # stop sharing: the old link stops working, comments stay, sharing again gives a new link
+    c.delete("/api/projects/p/review")
+    assert c.get(f"/api/review/{token}").status_code == 404 and c.get(f"/review/{token}").status_code == 404
+    assert c.post(f"/api/review/{token}/comments", json={"text": "late", "at": 1}).status_code == 404
+    again = c.post("/api/projects/p/review").json()
+    assert again["token"] != token and len(again["comments"]) == 1
+    assert c.get("/api/review/not-a-real-token").status_code == 404

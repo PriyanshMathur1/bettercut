@@ -556,6 +556,123 @@ def get_render(pid: str, name: str):
     return FileResponse(f)
 
 
+# ---- review links ------------------------------------------------------------------
+# The editor shares a project; anyone with the link watches its latest render and leaves comments pinned to
+# a moment and a spot. Reviewers can only read the video and comments and add comments.
+
+REVIEW_PAGE = Path(__file__).parent / "review.html"
+_PRIVATE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"}
+
+
+def _review_info(proj: Path) -> dict:
+    from . import review
+
+    r = review.latest_render(proj)
+    return {"token": review.load(proj)["token"], "comments": review.comments(proj), "render": r.name if r else None}
+
+
+@app.get("/api/projects/{pid}/review")
+def get_review(pid: str):
+    return _review_info(_proj(pid))
+
+
+@app.post("/api/projects/{pid}/review")
+def share_review(pid: str):
+    """Share the project for review (the same link each time until sharing is stopped)."""
+    from . import review
+
+    proj = _proj(pid)
+    token = review.share(proj)
+    return {**_review_info(proj), "path": f"/review/{token}"}
+
+
+@app.delete("/api/projects/{pid}/review")
+def stop_review(pid: str):
+    """Stop sharing: the link stops working. Comments stay."""
+    from . import review
+
+    proj = _proj(pid)
+    review.unshare(proj)
+    return _review_info(proj)
+
+
+@app.post("/api/projects/{pid}/review/comments/{cid}")
+async def mark_comment(pid: str, cid: str, req: Request):
+    from . import review
+
+    proj = _proj(pid)
+    body = await req.json()
+    try:
+        review.set_done(proj, cid, bool(body.get("done")))
+    except KeyError:
+        raise HTTPException(404, "no such comment")
+    return _review_info(proj)
+
+
+@app.delete("/api/projects/{pid}/review/comments/{cid}")
+def remove_comment(pid: str, cid: str):
+    from . import review
+
+    proj = _proj(pid)
+    try:
+        review.delete_comment(proj, cid)
+    except KeyError:
+        raise HTTPException(404, "no such comment")
+    return _review_info(proj)
+
+
+def _reviewed(token: str) -> Path:
+    from . import review
+
+    proj = review.find(PROJECTS, token)
+    if proj is None:
+        raise HTTPException(404, "this review link doesn't work any more: ask for a new one")
+    return proj
+
+
+@app.get("/api/review/{token}")
+def review_data(token: str):
+    from . import review
+
+    proj = _reviewed(token)
+    r = review.latest_render(proj)
+    spec = pipeline.load(proj) if (proj / "spec.json").exists() else {}
+    title = (spec.get("hook") or {}).get("text") if isinstance(spec.get("hook"), dict) else None
+    return JSONResponse({"title": title or proj.name.replace("-", " "), "version": r.name if r else None,
+                         "width": spec.get("width"), "height": spec.get("height"), "comments": review.comments(proj)}, headers=_PRIVATE)
+
+
+@app.get("/api/review/{token}/video")
+def review_video(token: str):
+    from . import review
+
+    r = review.latest_render(_reviewed(token))
+    if r is None:
+        raise HTTPException(404, "nothing rendered yet")
+    return FileResponse(r, media_type="video/mp4", headers={**_PRIVATE, "Accept-Ranges": "bytes"})
+
+
+@app.post("/api/review/{token}/comments")
+async def review_comment(token: str, req: Request):
+    from . import review
+
+    proj = _reviewed(token)
+    try:
+        body = await req.json()
+        r = review.latest_render(proj)
+        c = review.add_comment(proj, body.get("name", ""), body.get("text", ""), body.get("at", 0), body.get("x"), body.get("y"),
+                               version=r.name if r else "")
+    except (ValueError, TypeError, AttributeError) as e:
+        raise HTTPException(400, str(e) or "bad comment")
+    return JSONResponse(c, headers=_PRIVATE)
+
+
+@app.get("/review/{token}")
+def review_page(token: str):
+    _reviewed(token)
+    return FileResponse(REVIEW_PAGE, media_type="text/html", headers=_PRIVATE)
+
+
 # ---- UI ----------------------------------------------------------------------------
 
 @app.get("/{path:path}")

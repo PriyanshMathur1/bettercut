@@ -387,6 +387,18 @@ kbd { display: inline-block; min-width: 1.5em; padding: 1px 6px; border: 1px sol
 .cam-row .warn { color: #ffc46b; }
 .cam-strip { position: relative; height: 14px; margin: 0 8px 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
 .cam-strip > div { position: absolute; top: 0; bottom: 0; }
+.review { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.review h3 { margin: 0; }
+.review .row > button, .review .row > label { flex: none; }
+.review .review-link { flex: 1; min-width: 0; font-size: 12px; }
+.review .warn { color: #ffc46b; }
+.review .err { color: #ff8a7a; }
+.review-list li { align-items: flex-start; }
+.review-list li > button { flex: none; }
+.review-list li .grow { flex: 1; min-width: 0; }
+.review-list li .meta { font-size: 11px; color: var(--muted, #9aa0ad); }
+.review-list li .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-list li.done { opacity: 0.6; }
 .zoom-row .cam-strip > div { background: #6b5a2c; }
 .zoom-row .cam-strip > div.on { background: var(--accent); }
 .zoom-row .cam-strip > .cam-head { background: var(--accent); }
