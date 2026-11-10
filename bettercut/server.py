@@ -162,7 +162,9 @@ async def create_project(
     hook: str | None = Form(None),
     model: str = Form("small"),
     shape: str = Form("auto"),
+    zoom: bool = Form(False),
 ):
+    """`zoom`: the clips are screen recordings; zoom in where something happens once the reel is made."""
     if shape != shapes.AUTO and shape not in shapes.SHAPES:
         raise HTTPException(400, "unknown shape")
     pid = _slug(name)
@@ -192,6 +194,10 @@ async def create_project(
         if hook is not None:
             kw["hook"] = hook
         pipeline.make(proj, saved, look=look, **kw)
+        if zoom:
+            from . import screenzoom
+
+            screenzoom.auto_zoom(proj, log=log)
         return {"project": pid}
 
     job = _job("make", pid, work)
@@ -266,6 +272,21 @@ def auto_cams(pid: str):
         return {"switches": len(spec.get("cams") or [])}
 
     return {"job": _job("autocam", pid, work)["id"]}
+
+
+@app.post("/api/projects/{pid}/autozoom")
+def auto_zooms(pid: str):
+    """Zoom in where something happens on a screen recording (replaces the current zooms)."""
+    from . import screenzoom
+
+    proj = _proj(pid)
+
+    def work(job, log):
+        _history(proj, pipeline.load(proj))
+        spec = screenzoom.auto_zoom(proj, log=log)
+        return {"zooms": len(spec.get("zooms") or [])}
+
+    return {"job": _job("autozoom", pid, work)["id"]}
 
 
 @app.get("/api/projects/{pid}/spec")

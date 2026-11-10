@@ -12,6 +12,7 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { CamRow } from "./CamRow";
+import { ZoomRow } from "./ZoomRow";
 import { createSaver, type SaveState } from "./saver";
 import { Guard } from "./Guard";
 import { playbackAction, SHORTCUTS, shuttle, stepFrame, typingIn } from "./keys";
@@ -83,7 +84,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [frame, setFrame] = useState(0);
   const [safe, setSafe] = useState(false);
   const [showNew, setShowNew] = useState(false);
-  const [recorder, setRecorder] = useState<null | "camera" | "voice">(null);
+  const [recorder, setRecorder] = useState<null | "camera" | "screen" | "voice">(null);
   const [layerSel, setLayerSel] = useState<number | null>(null); // layer selected on the timeline
   const volumeBefore = useRef(1); // preview volume to restore after a voiceover take
   const voiceAt = useRef(0); // where in the footage the playhead was when a voiceover started
@@ -352,6 +353,19 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       setJob({ id: "", kind: "angles", project: pid, status: "error", progress: 0, log: [e.message], result: null });
     }
   };
+
+  const autoZoom = async () => {
+    try {
+      await saved();
+      const { job: id } = await api.autoZoom(pid);
+      run(id, (j) => {
+        if (j.status === "done") loadSpec(pid);
+      });
+    } catch (e: any) {
+      setJob({ id: "", kind: "autozoom", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
   const autoCams = async () => {
     try {
       await saved();
@@ -403,13 +417,15 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
 
   /** A take from the camera: a new reel, or more footage for this one. */
   const recordedVideo = async (file: File, where: "new" | "add") => {
+    const screen = recorder === "screen";
     setRecorder(null);
     if (where === "add" && pid) return addClips([file]);
     try {
       const f = new FormData();
       f.append("files", file);
-      f.append("name", "recording");
-      f.append("shape", "9x16"); // the recorder films a vertical frame
+      f.append("name", screen ? "screen" : "recording");
+      f.append("shape", screen ? "auto" : "9x16"); // the camera films a vertical frame; a screen keeps its own shape
+      if (screen) f.append("zoom", "true");
       f.append("look", spec?.look || "bold-pop");
       const r = await api.create(f);
       created(r.project, r.job);
@@ -620,6 +636,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
         <button onClick={() => setShowNew(true)}>+ New video</button>
         <button onClick={() => setRecorder("camera")} title="Record yourself in the browser, with a teleprompter">
           Record
+        </button>
+        <button onClick={() => setRecorder("screen")} title="Record your screen; the reel zooms in where things happen">
+          Record screen
         </button>
         {cloud && pid ? (
           <button
@@ -897,6 +916,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               onAddAngles={addAngles}
               onAuto={autoCams}
             />
+            <ZoomRow spec={spec} placed={placed} tOut={tOut} sourceNow={sourceNow} duration={duration} busy={job?.status === "running"} update={update} onAuto={autoZoom} />
             </Guard>
             {issues.length ? (
               <div className="issues">

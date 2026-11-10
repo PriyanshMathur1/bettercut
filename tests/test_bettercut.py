@@ -852,3 +852,57 @@ def test_a_camera_that_was_not_recording_is_never_chosen_for_that_time():
     cuts = multicam.choose_speakers({"main": main, "cam1": levels}, min_shot=0.5)
     assert cuts[0]["angle"] in ("main", "cam1") and cuts[-1]["angle"] == "main"  # back to main once cam1 stops
     assert multicam.choose_speakers({}) == []
+
+
+def _screen(seconds=8.0, fps=8, w=192, h=108):
+    """A still 'screen' where a button lights up at 1 s (top left), the same button again at 2 s, a menu
+    opens bottom right at 4.5 s, the whole page changes at 6 s, and a small cursor wanders all along."""
+    import numpy as np
+
+    n = int(seconds * fps)
+    out = np.full((n, h, w), 40, dtype=np.uint8)
+    for i in range(n):
+        t = i / fps
+        f = out[i]
+        f[10:20, 10:40] = 90  # a button
+        if 1.0 <= t < 1.5 or 2.0 <= t < 2.5:
+            f[10:20, 10:40] = 200  # pressed
+        if t >= 4.5:
+            f[70:100, 140:185] = 220  # a menu
+        if t >= 6.0:
+            f[:, :] = 160  # a new page
+        cx = 60 + int(20 * np.sin(t * 3))
+        f[50:53, cx : cx + 2] = 255  # the cursor
+    return out, float(fps)
+
+
+def test_screen_zooms_follow_clicks_and_end_on_a_new_page():
+    from bettercut import screenzoom
+
+    stack, fps = _screen()
+    evs = screenzoom.events(screenzoom.changes(stack, fps))
+    kinds = [e["kind"] for e in evs]
+    assert kinds.count("screen") == 1 and kinds[-1] == "screen"  # the cursor alone is never an event
+    zooms = screenzoom.plan(evs, len(stack) / fps)
+    assert len(zooms) == 2
+    first, second = zooms
+    # the button: zoomed in just before the first press, held through the second press on the same spot
+    assert first["start"] < 1.0 and first["end"] >= 4.0 - 0.01 and first["x"] < 0.25 and first["y"] < 0.25
+    # the menu: bottom right, and it ends when the page changes
+    assert second["x"] > 0.7 and second["y"] > 0.7 and abs(second["end"] - 6.0) < 0.2
+    assert first["end"] <= second["start"]  # zooms never overlap
+    assert all(1.4 <= z["zoom"] <= 2.2 for z in zooms)
+
+
+def test_screen_zooms_from_a_real_video_file(tmp_path):
+    import subprocess
+
+    from bettercut import screenzoom
+
+    stack, fps = _screen()
+    n, h, w = stack.shape
+    path = tmp_path / "screen.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{w}x{h}", "-r", str(int(fps)),
+                    "-i", "-", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "12", str(path)], input=stack.tobytes(), check=True)
+    zooms = screenzoom.find_zooms(path)
+    assert len(zooms) == 2 and zooms[0]["x"] < 0.25 and zooms[1]["x"] > 0.7

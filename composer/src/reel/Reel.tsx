@@ -14,6 +14,7 @@ import {
   snapToOutput,
   totalOutDuration,
   autoZoomFor,
+  toSource,
   type PlacedSegment,
 } from "./timeline";
 import { CaptionLayer, PunchLayer } from "./captions/CaptionLayer";
@@ -28,6 +29,7 @@ import { blurRadius, filterFor } from "./clipfx";
 import { FxDefs, FxOverlays } from "./EffectLayers";
 import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
+import { viewAt, viewTransform } from "./zooms";
 import { GradeOverlay, gradeFilter, primaryApprox } from "./grade";
 import { HookLayer, EndCardLayer } from "./titles";
 import { OverlayItem } from "./overlays";
@@ -227,10 +229,14 @@ export const Reel: React.FC<ReelProps> = (spec) => {
     />
   );
 
-  /** Wrapper that applies the per-frame camera transform inside a box. */
-  const cam = (children: React.ReactNode, extra?: React.CSSProperties) => (
-    <div style={{ position: "absolute", inset: 0, transform: fx.transform, transformOrigin: `${originX}px ${originY}px`, ...extra }}>{children}</div>
-  );
+  // zooms on the footage (screen recordings), on the source clock so they stay on what they point at
+  const zoomT = spec.zooms?.length ? viewTransform(viewAt(spec.zooms, toSource(placed, t)), box.w, box.h) : undefined;
+
+  /** Wrapper that applies the per-frame camera transform (and any zoom) inside a box. */
+  const cam = (children: React.ReactNode, extra?: React.CSSProperties) => {
+    const inner = <div style={{ position: "absolute", inset: 0, transform: fx.transform, transformOrigin: `${originX}px ${originY}px`, ...extra }}>{children}</div>;
+    return zoomT ? <div style={{ position: "absolute", inset: 0, transform: zoomT, transformOrigin: "0 0" }}>{inner}</div> : inner;
+  };
 
   // the matte sits at exactly the same geometry as the footage, but unclipped
   const matteLayer = (clip?: string, filter?: string) => (
