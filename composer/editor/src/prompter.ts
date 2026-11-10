@@ -18,11 +18,11 @@ export function readSeconds(script: string, wpm: number): number {
 }
 
 /** The first recording format this browser supports, and the file extension to save it under. */
-export function pickFormat(kind: "camera" | "voice", supported: (mime: string) => boolean): { mime: string; ext: string } {
+export function pickFormat(kind: "camera" | "screen" | "voice", supported: (mime: string) => boolean): { mime: string; ext: string } {
   const options =
-    kind === "camera"
+    kind !== "voice"
       ? [["video/webm;codecs=vp9,opus", "webm"], ["video/webm;codecs=vp8,opus", "webm"], ["video/webm", "webm"], ["video/mp4", "mp4"]]
       : [["audio/webm;codecs=opus", "webm"], ["audio/webm", "webm"], ["audio/mp4", "m4a"]];
   for (const [mime, ext] of options) if (supported(mime)) return { mime, ext };
-  return { mime: "", ext: kind === "camera" ? "webm" : "webm" };
+  return { mime: "", ext: "webm" };
 }

@@ -8,11 +8,13 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 /**
  * Record in the browser.
  * - camera: yourself, with a teleprompter that scrolls your script. The take becomes a new reel or is added to this one.
+ * - screen: a screen, window or tab, with your microphone if you allow it. The reel zooms in where things
+ *   happen on screen (clicks, menus opening). The browser never sees the clicks themselves, only the picture.
  * - voice: narration from the microphone while the reel plays. The take is laid over the reel at the playhead.
  * Nothing is uploaded until you choose what to do with the take.
  */
 export const Recorder: React.FC<{
-  mode: "camera" | "voice";
+  mode: "camera" | "screen" | "voice";
   canAdd: boolean;
   onClose: () => void;
   onVideo: (file: File, where: "new" | "add") => void;
@@ -42,9 +44,43 @@ export const Recorder: React.FC<{
   const started = useRef(0);
   const timers = useRef<number[]>([]);
 
+  const extra = useRef<MediaStream[]>([]); // the screen and the microphone, when they are mixed into one stream
+  const mixer = useRef<AudioContext | null>(null);
   const stopStream = () => {
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
+    extra.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    extra.current = [];
+    mixer.current?.close().catch(() => {});
+    mixer.current = null;
+  };
+
+  /** The screen plus the microphone (if allowed), with both sounds mixed onto one track. */
+  const openScreen = async (): Promise<MediaStream> => {
+    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("This browser can't record the screen. Try a current version of Chrome, Edge or Firefox on a computer.");
+    const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 } }, audio: true });
+    let mic: MediaStream | null = null;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      mic = null; // record the screen without narration
+    }
+    extra.current = [screen, ...(mic ? [mic] : [])];
+    const sounds = extra.current.filter((s) => s.getAudioTracks().length);
+    let audio: MediaStreamTrack[] = [];
+    if (sounds.length === 1) audio = sounds[0].getAudioTracks();
+    else if (sounds.length > 1) {
+      const ctx = new AudioContext();
+      const out = ctx.createMediaStreamDestination();
+      sounds.forEach((s) => ctx.createMediaStreamSource(s).connect(out));
+      mixer.current = ctx;
+      audio = out.stream.getAudioTracks();
+    }
+    // sharing stopped from the browser's own bar: end the take
+    screen.getVideoTracks()[0]?.addEventListener("ended", () => {
+      if (recorder.current && recorder.current.state !== "inactive") stop();
+    });
+    return new MediaStream([...screen.getVideoTracks(), ...audio]);
   };
   const clearTimers = () => {
     timers.current.forEach((t) => window.clearInterval(t));
@@ -56,10 +92,13 @@ export const Recorder: React.FC<{
     setError("");
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser can't record. Try a current version of Chrome, Edge, Safari or Firefox.");
-      const s = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: mode === "camera" ? { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" } : false,
-      });
+      const s =
+        mode === "screen"
+          ? await openScreen()
+          : await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: mode === "camera" ? { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 }, facingMode: "user" } : false,
+            });
       stream.current = s;
       if (live.current) {
         live.current.srcObject = s;
@@ -70,7 +109,9 @@ export const Recorder: React.FC<{
       const denied = e?.name === "NotAllowedError" || e?.name === "SecurityError";
       const missing = e?.name === "NotFoundError" || e?.name === "OverconstrainedError";
       setError(
-        denied
+        denied && mode === "screen"
+          ? "Choose a screen, window or tab to share, then start recording. If nothing was offered, allow screen recording for this browser in your computer's settings."
+          : denied
           ? `Allow ${mode === "camera" ? "camera and microphone" : "microphone"} access for this page in your browser, then try again.`
           : missing
             ? `No ${mode === "camera" ? "camera or microphone" : "microphone"} was found on this device.`
@@ -112,9 +153,9 @@ export const Recorder: React.FC<{
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onstop = () => {
       const seconds = (performance.now() - started.current) / 1000;
-      const type = rec.mimeType || fmt.mime || (mode === "camera" ? "video/webm" : "audio/webm");
+      const type = rec.mimeType || fmt.mime || (mode === "voice" ? "audio/webm" : "video/webm");
       const blob = new Blob(chunks, { type });
-      const name = `${mode === "camera" ? "recording" : "voiceover"}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.${fmt.ext}`;
+      const name = `${mode === "camera" ? "recording" : mode === "screen" ? "screen" : "voiceover"}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.${fmt.ext}`;
       setTake({ file: new File([blob], name, { type }), url: URL.createObjectURL(blob), seconds });
       setPhase("review");
       onRecording?.(false);
@@ -169,12 +210,14 @@ export const Recorder: React.FC<{
   const offset = text.current ? progress * text.current.scrollHeight : 0;
   const hasScript = wordCount(script) > 0;
   const camera = mode === "camera";
+  const screen = mode === "screen";
+  const video = camera || screen;
 
   return (
     <div className="modal">
-      <div className={`sheet rec ${camera ? "wide" : ""}`}>
+      <div className={`sheet rec ${video ? "wide" : ""}`}>
         <div className="row">
-          <h2>{camera ? "Record yourself" : "Record a voiceover"}</h2>
+          <h2>{camera ? "Record yourself" : screen ? "Record your screen" : "Record a voiceover"}</h2>
           <div className="spacer" />
           <button className="x" onClick={() => finish(onClose)} aria-label="Close" disabled={phase === "recording" || phase === "countdown"}>
             ×
@@ -190,13 +233,13 @@ export const Recorder: React.FC<{
           </>
         ) : phase === "review" && take ? (
           <>
-            {camera ? <video className="rec-view" src={take.url} controls playsInline /> : <audio src={take.url} controls style={{ width: "100%" }} />}
+            {video ? <video className={`rec-view ${screen ? "wide" : ""}`} src={take.url} controls playsInline /> : <audio src={take.url} controls style={{ width: "100%" }} />}
             <p className="hint">
-              {clock(take.seconds)} recorded. {camera ? "It is cut and captioned like any other clip." : "It is placed on the reel where the playhead was when you started."}
+              {clock(take.seconds)} recorded. {camera ? "It is cut and captioned like any other clip." : screen ? "A new reel zooms in where things happen on screen; you can move or remove each zoom." : "It is placed on the reel where the playhead was when you started."}
             </p>
             <div className="row end">
               <button onClick={again}>Record again</button>
-              {camera ? (
+              {video ? (
                 <>
                   {canAdd ? <button onClick={() => finish(() => onVideo(take.file, "add"))}>Add to this reel</button> : null}
                   <button className="primary" onClick={() => finish(() => onVideo(take.file, "new"))}>
@@ -212,10 +255,10 @@ export const Recorder: React.FC<{
           </>
         ) : (
           <>
-            {camera ? (
-              <div className="rec-stage">
-                <video ref={live} className="rec-view" muted playsInline style={{ transform: mirror ? "scaleX(-1)" : undefined }} />
-                {hasScript ? (
+            {video ? (
+              <div className={`rec-stage ${screen ? "wide" : ""}`}>
+                <video ref={live} className={`rec-view ${screen ? "wide" : ""}`} muted playsInline style={{ transform: camera && mirror ? "scaleX(-1)" : undefined }} />
+                {camera && hasScript ? (
                   <div className="prompter">
                     <div ref={text} style={{ transform: `translateY(${-offset}px)` }}>
                       {script}

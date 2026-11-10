@@ -157,6 +157,7 @@ export const api = {
     files.forEach((x) => f.append("files", x));
     return af(`/api/projects/${pid}/angles`, { method: "POST", body: f }).then((r) => j<{ job: string }>(r));
   },
+  autoZoom: (pid: string) => af(`/api/projects/${pid}/autozoom`, { method: "POST" }).then((r) => j<{ job: string }>(r)),
   autoCams: (pid: string) => af(`/api/projects/${pid}/autocam`, { method: "POST" }).then((r) => j<{ job: string }>(r)),
   bake: (pid: string) => af(`/api/projects/${pid}/bake`, { method: "POST" }).then((r) => j<{ job: string }>(r)),
   luts: (pid: string) => af(`/api/projects/${pid}/luts`).then((r) => j<{ id: string; img: string }[]>(r)),
