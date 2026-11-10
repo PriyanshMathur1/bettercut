@@ -100,6 +100,8 @@ export interface HookTitle {
 }
 
 export type OverlayKind =
+  // plain words, placed where you click on the preview
+  | "text"
   | "emoji"
   | "sticker"
   | "lowerThird"
