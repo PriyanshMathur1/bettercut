@@ -115,7 +115,8 @@ def _fn(name: str, description: str, props: dict, required: list[str]) -> dict:
 
 TOOLS = [
     _fn("get_spec", "Read part of the reel spec. section = 'overview' (everything except the long lists), a top-level key "
-        "(captions, format, hook, motion, grade, audio, brand, overlays, broll, endCard, segments), or 'words'. For 'words', "
+        "(captions, format, hook, motion, grade, audio, brand, overlays, broll, endCard, segments), 'words', or 'sentences' "
+        "(the spoken sentences with their source times: use these as the lines when translating captions). For 'words', "
         "pass from_output/to_output (seconds) to get only that stretch.",
         {"section": {"type": "string"}, "from_output": {"type": "number"}, "to_output": {"type": "number"}}, ["section"]),
     _fn("find_words", "Find where a phrase is spoken. Returns word indexes with source and output times.",
@@ -134,6 +135,28 @@ TOOLS = [
     _fn("done", "Finish. summary: one short line per note saying what changed (or why it couldn't).",
         {"summary": {"type": "string"}}, ["summary"]),
 ]
+
+
+def sentences(words: list[dict], max_words: int = 18) -> list[dict]:
+    """Kept words grouped into sentences (same rules as composer/src/reel/translate.ts)."""
+    out: list[dict] = []
+    cur: list[dict] = []
+
+    def flush() -> None:
+        if cur:
+            out.append({"start": cur[0]["start"], "end": cur[-1]["end"], "text": " ".join(w["text"] for w in cur)})
+            cur.clear()
+
+    for w in words:
+        if w.get("cut"):
+            continue
+        if cur and w["start"] - cur[-1]["end"] > 1.2:
+            flush()
+        cur.append(w)
+        if re.search(r"[.!?…][\"')\]]?$", w["text"]) or len(cur) >= max_words:
+            flush()
+    flush()
+    return out
 
 
 def to_source(placed: list[dict], t: float) -> tuple[float, int] | None:
@@ -195,6 +218,8 @@ class Session:
         if section == "segments":
             return _json([{k: s.get(k) for k in ("index", "start", "end", "outStart", "outEnd", "zoom", "speed", "cx", "cy") if s.get(k) is not None}
                           for s in place_segments(sp)])
+        if section == "sentences":
+            return _json(sentences(sp.get("words", [])))
         if section in sp:
             return _json(sp[section])
         return f"error: no section {section}. Top-level keys: {', '.join(sp.keys())}"

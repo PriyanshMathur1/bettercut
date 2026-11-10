@@ -20,6 +20,8 @@ import { CaptionLayer, PunchLayer } from "./captions/CaptionLayer";
 import { getCaptionStyle } from "./captions/styles";
 import { EFFECT_MAP, combineFX, type FX } from "./motion/effects";
 import { FORMAT_MAP, type FormatLayout } from "./formats";
+import { TranslationLine } from "./captions/TranslationLine";
+import { translationAt } from "./translate";
 import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
 import { GradeOverlay, gradeFilter, primaryApprox } from "./grade";
@@ -276,6 +278,12 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   }, [spec.audio, cutFx, overlays, spec.hook?.text, spec.endCard?.enabled, body, placed]);
 
   const captionSettings = { ...spec.captions, position: spec.captions?.position || layout.captionY || "lower" };
+  // translated captions: the sentence being spoken, looked up by source time so it follows every edit
+  const translation = spec.captions?.translation;
+  const srcT = seg ? Math.min(seg.end, seg.start + (t - seg.outStart) * speedOf(seg)) : 0;
+  const hookOver = !spec.hook?.text || t >= (spec.hook.duration || 0);
+  const translated = translation && spec.captions?.enabled && inBody && hookOver ? translationAt(translation.lines, srcT) : null;
+  const onlyTranslation = !!translation && translation.mode === "replace" && translation.lines.some((l) => l.text);
   const behind = !!(spec.captions?.behindHead && hasMatte);
 
   return (
@@ -376,7 +384,8 @@ export const Reel: React.FC<ReelProps> = (spec) => {
         <OverlayItem key={o.id || i} o={o} brand={brand} start={r.start} end={r.end} itemTimes={itemTimes} />
       ))}
 
-      {inBody ? <CaptionLayer pages={pages} style={capStyle} settings={captionSettings} brand={brand} omitEmphasis={behind} hideBefore={spec.hook?.text ? spec.hook.duration : undefined} /> : null}
+      {translated ? <TranslationLine text={translated.text} settings={captionSettings} brand={brand} below={!onlyTranslation} /> : null}
+      {inBody && !onlyTranslation ? <CaptionLayer pages={pages} style={capStyle} settings={captionSettings} brand={brand} omitEmphasis={behind} hideBefore={spec.hook?.text ? spec.hook.duration : undefined} /> : null}
 
       {spec.hook?.text ? <HookLayer text={spec.hook.text} subtitle={spec.hook.subtitle} style={spec.hook.style} duration={spec.hook.duration} brand={brand} top={spec.format?.headline ? layout.hookTop : undefined} /> : null}
 
