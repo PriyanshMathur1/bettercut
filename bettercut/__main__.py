@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("project")
     m.add_argument("clips", nargs="*")
     m.add_argument("--look", default="bold-pop")
+    m.add_argument("--shape", default="auto", help="auto (follow the first clip), 9x16, 4x5, 1x1 or 16x9")
+    m.add_argument("--fps", default="auto", help="auto (follow the first clip) or a frame rate: 24, 25, 30, 50, 60")
     m.add_argument("--brand")
     m.add_argument("--names", default="", help="comma-separated names/keywords Whisper should spell right")
     m.add_argument("--cutout", action="store_true", help="cut the speaker out (behind-head words, greenscreen)")
@@ -58,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("render")
     r.add_argument("project")
     r.add_argument("--quality", default="high", choices=["draft", "high", "max", "master"], help="master = ProRes HQ .mov")
-    r.add_argument("--aspect", default="9x16", help="9x16, 4x5, 1x1, 16x9 or 'all'")
+    r.add_argument("--aspect", default="native", help="native (the project's own shape), 9x16, 4x5, 1x1, 16x9 or 'all'")
     r.add_argument("-o", "--out")
 
     s = sub.add_parser("still")
@@ -98,11 +100,11 @@ def main(argv: list[str] | None = None) -> int:
         names = [n.strip() for n in a.names.split(",") if n.strip()]
         spec = pipeline.make(proj, a.clips, look=a.look, brand_file=a.brand, names=names, cutout=a.cutout, hook=a.hook,
                              model=a.model, language=a.language, newest=a.newest, max_gap=a.max_gap, keep_takes=a.keep_takes,
-                             reframe=not a.no_reframe, stabilize=a.stabilize, align=not a.no_align)
+                             reframe=not a.no_reframe, stabilize=a.stabilize, align=not a.no_align, shape=a.shape, fps=a.fps)
         for i in validate(spec):
             print("note:", i)
         if a.render:
-            return _render(proj, "high", None, "9x16")
+            return _render(proj, "high", None)
         return 0
     if a.cmd == "look":
         proj = _project(a.project)
@@ -111,7 +113,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"look -> {a.look}")
         return 0
     if a.cmd == "render":
-        aspects = ["9x16", "4x5", "1x1", "16x9"] if a.aspect == "all" else [a.aspect]
+        from . import shape as shapes
+
+        aspects = shapes.aspects_for(pipeline.load(_project(a.project)), list(shapes.SHAPES) if a.aspect == "all" else [a.aspect])
         for asp in aspects:
             _render(_project(a.project), a.quality, a.out if len(aspects) == 1 else None, asp)
         return 0
@@ -175,14 +179,16 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
-def _render(proj: Path, quality: str, out: str | None, aspect: str = "9x16") -> int:
+def _render(proj: Path, quality: str, out: str | None, aspect: str | None = None) -> int:
+    from . import shape as shapes
     from .export import write_all
 
     spec = pipeline.load(proj)
+    aspect = aspect or shapes.native(spec)
     v = pipeline.next_version(proj)
     slug = proj.name
     ext = ".mov" if quality == "master" else ".mp4"
-    tag = "" if aspect == "9x16" else f"-{aspect}"
+    tag = shapes.tag(spec, aspect)
     dst = Path(out) if out else proj / "renders" / f"{slug}-v{v}{tag}{ext}"
     print(f"rendering {dst.name} ({quality})")
     shown = {-1}

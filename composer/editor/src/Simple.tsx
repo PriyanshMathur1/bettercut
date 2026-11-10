@@ -164,20 +164,22 @@ export const SHAPES = [
 /** The right-hand Project card: shapes to render, a few numbers, and quick ways to add things. */
 export const ProjectCard: React.FC<{
   shapes: string[];
+  /** The shape the project was made in; the others are reframed from it at render. */
+  native: string;
   onShape: (id: string) => void;
   length: string;
   shots: number;
   cut: number;
   onAdd: (what: "text" | "music" | "captions" | "broll" | "voice" | "clips") => void;
-}> = ({ shapes, onShape, length, shots, cut, onAdd }) => (
+}> = ({ shapes, native, onShape, length, shots, cut, onAdd }) => (
   <div className="s-card">
     <h3>Video shape</h3>
     <div className="s-shapes">
       {SHAPES.map((s) => (
-        <button key={s.id} className={shapes.includes(s.id) ? "on" : ""} aria-pressed={shapes.includes(s.id)} onClick={() => onShape(s.id)} title="Render this shape too (pick one or more)">
+        <button key={s.id} className={shapes.includes(s.id) ? "on" : ""} aria-pressed={shapes.includes(s.id)} onClick={() => onShape(s.id)} title={s.id === native ? "This video's own shape" : "Also render this shape, reframed from the video"}>
           <i style={{ aspectRatio: `${s.w} / ${s.h}` }} />
           <b>{s.name}</b>
-          <small>{s.sub}</small>
+          <small>{s.id === native ? "This video" : s.sub}</small>
         </button>
       ))}
     </div>

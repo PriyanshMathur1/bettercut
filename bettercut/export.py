@@ -8,12 +8,7 @@ from xml.sax.saxutils import escape
 
 from .timeline import output_words, place_segments
 
-ASPECTS = {
-    "9x16": (1080, 1920),
-    "4x5": (1080, 1350),
-    "1x1": (1080, 1080),
-    "16x9": (1920, 1080),
-}
+from .shape import SHAPES as ASPECTS  # noqa: E402  (kept under its old name for callers)
 
 
 def _ts(t: float, sep: str) -> str:

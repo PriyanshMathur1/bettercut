@@ -12,7 +12,7 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { followPlayer, volumeToRestore } from "./preview";
-import { askNotes, groupOf, keepTab, railFor, readWorkspace, toggleShape, writeWorkspace, type RailIcon, type Workspace } from "./workspace";
+import { askNotes, groupOf, keepTab, railFor, readWorkspace, shapeOf, toggleShape, writeWorkspace, type RailIcon, type Workspace } from "./workspace";
 import { AskBar, ExportMenu, ProjectCard, Rail, SHAPES } from "./Simple";
 
 const storage = () => {
@@ -89,6 +89,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [noteText, setNoteText] = useState("");
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
   const [aspects, setAspects] = useState<string[]>(["9x16"]);
+  const nativeShape = shapeOf(spec?.width, spec?.height); // the shape this project was made in
+  useEffect(() => {
+    if (spec) setAspects([nativeShape]); // a project renders in its own shape unless you pick others
+  }, [pid, nativeShape, !!spec]);
   const [ws, setWs] = useState<Workspace>(() => readWorkspace(storage()));
   const [railOpen, setRailOpen] = useState<RailIcon | null>("looks"); // Simple: the open rail button
   const clipPicker = useRef<HTMLInputElement>(null); // Simple: "Clips" in the Project card
@@ -186,7 +190,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const tOut = frame / fps;
   const sourceNow = toSource(placed, tOut);
   const words = useMemo(() => (spec ? outputWords(placed, spec.words) : []), [placed, spec?.words]);
-  const inputProps = useMemo(() => (spec ? (forPlayer({ ...spec, safeGuide: safe }) as any) : null), [spec, safe]);
+  // the safe-zone guide shows where Reels and Shorts put their buttons, so it only fits a vertical frame
+  const inputProps = useMemo(() => (spec ? (forPlayer({ ...spec, safeGuide: safe && nativeShape === "9x16" }) as any) : null), [spec, safe, nativeShape]);
 
   // A voiceover take silences the preview. If the page closed before the take ended, put the volume back.
   useEffect(() => {
@@ -314,6 +319,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       const f = new FormData();
       f.append("files", file);
       f.append("name", "recording");
+      f.append("shape", "9x16"); // the recorder films a vertical frame
       f.append("look", spec?.look || "bold-pop");
       const r = await api.create(f);
       created(r.project, r.job);
@@ -424,7 +430,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           <span className="mark">◆</span> BetterCut
         </div>
         <select value={pid} onChange={(e) => setPid(e.target.value)}>
-          <option value="">Choose a reel…</option>
+          <option value="">Choose a video…</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.title || p.id}
@@ -432,7 +438,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             </option>
           ))}
         </select>
-        <button onClick={() => setShowNew(true)}>+ New reel</button>
+        <button onClick={() => setShowNew(true)}>+ New video</button>
         <button onClick={() => setRecorder("camera")} title="Record yourself in the browser, with a teleprompter">
           Record
         </button>
@@ -472,10 +478,12 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             <button className="ghost" onClick={async () => setSpec((await api.undo(pid)).spec)}>
               Undo
             </button>
-            <label className="toggle">
-              <input type="checkbox" checked={safe} onChange={(e) => setSafe(e.target.checked)} />
-              <span>Safe zone</span>
-            </label>
+            {nativeShape === "9x16" ? (
+              <label className="toggle" title="Show where Reels and Shorts put their buttons and captions">
+                <input type="checkbox" checked={safe} onChange={(e) => setSafe(e.target.checked)} />
+                <span>Safe zone</span>
+              </label>
+            ) : null}
             {simple ? (
               <ExportMenu busy={job?.status === "running"} shapes={aspects.length} onRender={startRender} onFile={exportFile} />
             ) : (
@@ -528,10 +536,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       {!spec || !catalog ? (
         <div className="empty">
           {pid && issues.length ? <p>{issues[0]}</p> : null}
-          <h1>Raw clips in. Finished reel out.</h1>
-          <p>Create a reel from your clips, pick a look, cut by editing text, leave notes on the video for {cloud ? "your AI model" : "Claude"}, render.</p>
+          <h1>Raw clips in. Finished video out.</h1>
+          <p>Create a video from your clips in any shape, pick a look, cut by editing text, leave notes on the video for {cloud ? "your AI model" : "Claude"}, render.</p>
           <button className="primary big" onClick={() => setShowNew(true)}>
-            + New reel
+            + New video
           </button>
         </div>
       ) : (
@@ -558,7 +566,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           <section className="center">
             <div className="stage">
               {inputProps ? (
-                <div className="stage-frame">
+                <div className="stage-frame" style={{ "--ar": (spec.width || 1080) / (spec.height || 1920) } as React.CSSProperties}>
                 <Player
                   ref={setPlayer}
                   component={Reel as any}
@@ -649,6 +657,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               <>
                 <ProjectCard
                   shapes={aspects}
+                  native={nativeShape}
                   onShape={(id) => setAspects((x) => toggleShape(x, id))}
                   length={fmt(duration)}
                   shots={spec.segments.length}
@@ -799,12 +808,13 @@ const NewReel: React.FC<{ cfg: CloudConfig; catalog: Catalog; onClose: () => voi
   const [look, setLook] = useState("bold-pop");
   const [names, setNames] = useState("");
   const [cutout, setCutout] = useState(false);
+  const [shape, setShape] = useState("auto");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   return (
     <div className="modal" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <h2>New reel</h2>
+        <h2>New video</h2>
         <label className="drop">
           {files?.length ? `${files.length} clip${files.length > 1 ? "s" : ""} selected` : "Drop or choose your raw clips (takes in any order)"}
           <input type="file" multiple accept="video/*" hidden onChange={(e) => setFiles(e.target.files)} />
@@ -812,6 +822,16 @@ const NewReel: React.FC<{ cfg: CloudConfig; catalog: Catalog; onClose: () => voi
         <label className="field">
           <span>Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="three-money-rules" />
+        </label>
+        <label className="field">
+          <span>Shape</span>
+          <select value={shape} onChange={(e) => setShape(e.target.value)}>
+            <option value="auto">Match my clips (landscape stays landscape)</option>
+            <option value="9x16">Vertical 9:16 · Reels, Shorts, TikTok</option>
+            <option value="16x9">Landscape 16:9 · YouTube</option>
+            <option value="1x1">Square 1:1 · Feed</option>
+            <option value="4x5">Portrait 4:5 · Feed</option>
+          </select>
         </label>
         <label className="field">
           <span>Look</span>
@@ -856,6 +876,7 @@ const NewReel: React.FC<{ cfg: CloudConfig; catalog: Catalog; onClose: () => voi
                 f.append("look", look);
                 f.append("names", names);
                 f.append("cutout", String(cutout));
+                f.append("shape", shape);
                 const r = await api.create(f);
                 onCreated(r.project, r.job);
               } catch (e: any) {
@@ -864,7 +885,7 @@ const NewReel: React.FC<{ cfg: CloudConfig; catalog: Catalog; onClose: () => voi
               }
             }}
           >
-            {busy ? "Uploading…" : "Make my reel"}
+            {busy ? "Uploading…" : "Make my video"}
           </button>
         </div>
       </div>

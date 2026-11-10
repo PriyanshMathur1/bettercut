@@ -49,6 +49,22 @@ export function keepTab<T extends string>(current: T, shown: readonly T[]): T {
   return shown.includes(current) ? current : shown[0] ?? current;
 }
 
+/** Frame sizes of the standard shapes (the twin of bettercut/shape.py). */
+export const SHAPE_SIZES: Record<string, [number, number]> = { "9x16": [1080, 1920], "4x5": [1080, 1350], "1x1": [1080, 1080], "16x9": [1920, 1080] };
+
+/** The standard shape closest to a frame of this size; a project with no size is a 9:16 reel. */
+export function shapeOf(width?: number, height?: number): string {
+  if (!width || !height || width <= 0 || height <= 0) return "9x16";
+  const ratio = width / height;
+  let best = "9x16";
+  let gap = Infinity;
+  for (const [id, [w, h]] of Object.entries(SHAPE_SIZES)) {
+    const d = Math.abs(w / h - ratio);
+    if (d < gap) [best, gap] = [id, d];
+  }
+  return best;
+}
+
 /** Toggle one render shape, never leaving none chosen. */
 export function toggleShape(chosen: readonly string[], shape: string): string[] {
   if (!chosen.includes(shape)) return [...chosen, shape];

@@ -1,7 +1,7 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askNotes, groupOf, keepTab, RAIL, railFor, readWorkspace, STORAGE_KEY, TABS, toggleShape, writeWorkspace, type KeyStore } from "../../editor/src/workspace.ts";
+import { askNotes, groupOf, keepTab, RAIL, railFor, readWorkspace, shapeOf, STORAGE_KEY, TABS, toggleShape, writeWorkspace, type KeyStore } from "../../editor/src/workspace.ts";
 
 const memory = (init: Record<string, string> = {}): KeyStore & { data: Record<string, string> } => {
   const data = { ...init };
@@ -56,6 +56,19 @@ test("keepTab keeps a shown tab, else falls back to the first", () => {
   assert.equal(keepTab("Colour", ["Motion", "Colour"]), "Colour");
   assert.equal(keepTab("Looks", ["Motion", "Colour"]), "Motion");
   assert.equal(keepTab("Looks", []), "Looks");
+});
+
+test("a project's shape is the standard one nearest its frame", () => {
+  assert.equal(shapeOf(1920, 1080), "16x9");
+  assert.equal(shapeOf(3840, 2160), "16x9");
+  assert.equal(shapeOf(1080, 1920), "9x16");
+  assert.equal(shapeOf(1080, 1080), "1x1");
+  assert.equal(shapeOf(1080, 1350), "4x5");
+});
+
+test("a project with no size is a vertical reel", () => {
+  assert.equal(shapeOf(), "9x16");
+  assert.equal(shapeOf(0, 0), "9x16");
 });
 
 test("shapes toggle on and off, but never to none", () => {

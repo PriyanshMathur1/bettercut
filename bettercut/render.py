@@ -159,10 +159,10 @@ def render(spec: dict, project: Path, out: Path, quality: str = "high", progress
     if issues:
         raise ValueError("spec problems: " + "; ".join(issues))
     spec = prepare(spec, project, log)
-    if aspect and aspect != "9x16":
-        from .export import ASPECTS
+    from . import shape as shapes
 
-        w, h = ASPECTS[aspect]
+    if aspect and aspect != shapes.native(spec):  # another shape than the project's own: reframe for it
+        w, h = shapes.SHAPES[aspect]
         spec = {**spec, "width": w, "height": h}
     out.parent.mkdir(parents=True, exist_ok=True)
     crf = {"draft": 28, "high": 18, "max": 14, "master": 14}.get(quality, 18)
