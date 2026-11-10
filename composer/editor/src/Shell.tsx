@@ -1,7 +1,7 @@
 // Pieces of the editor's shell: the icon rail, the media bin, the transport bar, the Ask AI bar,
 // the Project card and the Export menu. The rules behind them live in workspace.ts.
 import React, { useEffect, useRef, useState } from "react";
-import { CLIP_DRAG, timecode, type BinItem, type RailGroup, type RailIcon } from "./workspace";
+import { CLIP_DRAG, fmtClock, timecode, type BinItem, type RailGroup, type RailIcon } from "./workspace";
 
 const PATHS: Record<RailIcon, React.ReactNode> = {
   looks: <path d="M12 3l2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7z" />,
@@ -317,7 +317,8 @@ export const AskBar: React.FC<{
           placeholder={`Ask ${who} to edit: “${EXAMPLES.join("”, “")}”`}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && can) onAsk();
+            // the Enter that confirms a word in Hindi, Japanese or Chinese typing is not a send
+            if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229 && can) onAsk();
           }}
         />
         <button className="ghost" disabled={!value.trim()} onClick={onPin} title={`Keep this as a note at ${at}, sent with your next Ask`}>
@@ -348,7 +349,11 @@ export const ProjectCard: React.FC<{
   shots: number;
   cut: number;
   onAdd: (what: "text" | "music" | "captions" | "broll" | "voice" | "clips") => void;
-}> = ({ shapes, native, onShape, length, shots, cut, onAdd }) => (
+  /** A job is running: adding footage or recording now could clash with it. */
+  busy: boolean;
+  /** The playhead is on footage, so a voiceover has somewhere to start. */
+  canVoice: boolean;
+}> = ({ shapes, native, onShape, length, shots, cut, onAdd, busy, canVoice }) => (
   <div className="s-card">
     <h3>Video shape</h3>
     <div className="s-shapes">
@@ -380,8 +385,16 @@ export const ProjectCard: React.FC<{
       <button onClick={() => onAdd("music")}>♫&nbsp; Music</button>
       <button onClick={() => onAdd("captions")}>▭&nbsp; Captions</button>
       <button onClick={() => onAdd("broll")}>▶&nbsp; B-roll</button>
-      <button onClick={() => onAdd("voice")}>●&nbsp; Voiceover</button>
-      <button onClick={() => onAdd("clips")}>＋&nbsp; Clips</button>
+      <button
+        onClick={() => onAdd("voice")}
+        disabled={busy || !canVoice}
+        title={busy ? "Wait for the current job to finish" : canVoice ? "Record narration from your microphone, starting at the playhead" : "Move the playhead onto the footage first"}
+      >
+        ●&nbsp; Voiceover
+      </button>
+      <button onClick={() => onAdd("clips")} disabled={busy} title={busy ? "Wait for the current job to finish" : "Add more video clips to the end of this reel"}>
+        ＋&nbsp; Clips
+      </button>
     </div>
   </div>
 );
@@ -418,15 +431,15 @@ export const ExportMenu: React.FC<{
       </button>
       {open ? (
         <div className="s-menu" role="menu">
-          <button role="menuitem" onClick={pick(() => onRender("high"))}>
+          <button role="menuitem" onClick={pick(() => onRender("high"))} disabled={!shapes}>
             <b>Render</b>
-            <small>Full quality, {n}</small>
+            <small>{shapes ? `Full quality, ${n}` : "Choose a video shape in the Project card first"}</small>
           </button>
           <button role="menuitem" onClick={pick(() => onRender("draft"))}>
             <b>Quick draft</b>
             <small>Fast, lower quality, to check the cut</small>
           </button>
-          <button role="menuitem" onClick={pick(() => onRender("master"))}>
+          <button role="menuitem" onClick={pick(() => onRender("master"))} disabled={!shapes}>
             <b>ProRes master</b>
             <small>For finishing in another editor</small>
           </button>
@@ -447,4 +460,4 @@ export const ExportMenu: React.FC<{
   );
 };
 
-export const fmtClock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+export { fmtClock }; // shared with the rest of the editor; it lives in workspace.ts

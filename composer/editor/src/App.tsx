@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Player, type PlayerRef } from "@remotion/player";
 import { Reel, reelDuration } from "../../src/reel/Reel";
 import type { ReelSpec } from "../../src/reel/types";
-import { placeSegments, toOutput, toSource, outputWords, cutTimes, rangeToOutput } from "../../src/reel/timeline";
+import { placeSegments, toOutput, toSource, outputWords, cutTimes, rangeToOutput, totalOutDuration } from "../../src/reel/timeline";
 import { api, forPlayer, mediaUrl, watchJob, type Catalog, type CloudConfig, type Job, type ProjectRow } from "./api";
 import { Panel, TABS, type Tab } from "./Panels";
 import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
@@ -12,10 +12,10 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { followPlayer, volumeToRestore } from "./preview";
-import { askNotes, BIN, binItems, cutAfter, cutBefore, groupOf, keepTab, railFor, shapeOf, subTabs, toggleShape, type BinItem, type RailIcon } from "./workspace";
+import { askNotes, BIN, binItems, cutAfter, cutBefore, fmtClock, groupOf, keepTab, railFor, shapeOf, subTabs, toggleShape, withoutSent, type BinItem, type RailIcon } from "./workspace";
 import { AskBar, ExportMenu, MediaBin, ProjectCard, Rail, Transport } from "./Shell";
 
-const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+const fmt = fmtClock;
 
 /** Loads the server config, handles sign-in (cloud), then shows the editor. */
 export const App: React.FC = () => {
@@ -77,7 +77,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [layerSel, setLayerSel] = useState<number | null>(null); // layer selected on the timeline
   const volumeBefore = useRef(1); // preview volume to restore after a voiceover take
   const voiceAt = useRef(0); // where in the footage the playhead was when a voiceover started
-  const [notes, setNotes] = useState<{ t: number; text: string }[]>([]);
+  const [notes, setNotes] = useState<{ t: number | null; text: string }[]>([]); // t: reel seconds, or null for the whole reel
   const [noteText, setNoteText] = useState("");
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
   const [aspects, setAspects] = useState<string[]>(["9x16"]);
@@ -184,6 +184,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const tOut = frame / fps;
   const sourceNow = toSource(placed, tOut);
   const words = useMemo(() => (spec ? outputWords(placed, spec.words) : []), [placed, spec?.words]);
+  const cutCount = useMemo(() => (spec ? spec.words.filter((w) => w.cut).length : 0), [spec?.words]); // the editor re-renders every frame
   // the safe-zone guide shows where Reels and Shorts put their buttons, so it only fits a vertical frame
   const inputProps = useMemo(() => (spec ? (forPlayer({ ...spec, safeGuide: safe && nativeShape === "9x16" }) as any) : null), [spec, safe, nativeShape]);
 
@@ -377,7 +378,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       const { job: id } = await api.notes(pid, list);
       run(id, (j) => {
         if (j.status === "done") {
-          setNotes([]);
+          setNotes((cur) => withoutSent(cur, list)); // keep notes pinned while the AI was working
           setAiReply(j.result?.summary || "");
           loadSpec(pid);
         }
@@ -413,8 +414,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const ask = () => {
     const all = askNotes(notes, noteText);
     setNoteText("");
-    setNotes(all as typeof notes);
-    sendNotes(all as typeof notes);
+    setNotes(all);
+    sendNotes(all);
   };
 
   const current = projects.find((p) => p.id === pid);
@@ -438,7 +439,11 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       playerEl.removeEventListener("ended", off);
     };
   }, [playerEl]);
+  // a voiceover needs the playhead on footage, and must not start while a job is changing the reel
+  const busy = job?.status === "running";
+  const canVoice = tOut < totalOutDuration(placed) - 0.01;
   const voiceover = () => {
+    if (busy || !canVoice) return;
     voiceAt.current = sourceNow;
     setRecorder("voice");
   };
@@ -569,7 +574,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             onChange={(e) => {
               const files = Array.from(e.target.files || []);
               e.target.value = "";
-              if (files.length) addClips(files);
+              if (files.length && !busy) addClips(files); // never while another job is changing the reel
             }}
           />
           <input
@@ -640,7 +645,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               placed={placed}
               duration={duration}
               t={tOut}
-              notes={notes}
+              notes={notes.filter((n): n is { t: number; text: string } => n.t !== null)} // whole-reel notes have no place on the timeline
               onSeek={seekOut}
               update={update}
               updateAndBake={updateAndBake}
@@ -690,7 +695,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 onShape={(id) => setAspects((x) => toggleShape(x, id))}
                 length={fmt(duration)}
                 shots={spec.segments.length}
-                cut={spec.words.filter((w) => w.cut).length}
+                cut={cutCount}
+                busy={busy}
+                canVoice={canVoice}
                 onAdd={(what) => {
                   if (what === "text") openTab("Titles");
                   else if (what === "music") openTab("Audio");
@@ -706,13 +713,15 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 <h3>Notes on the video</h3>
                 <p className="hint">Type in the Ask bar under the preview. Pin a note to a moment, or press Ask to send everything to {cloud ? "your AI" : "Claude"}.</p>
                 <ul className="list notes">
-                  {notes.map((n, i) => (
+                  {notes.map((n, i) => {
+                    const at = n.t; // a note about the whole reel has no time
+                    return (
                     <li key={i}>
-                      {n.t === null || n.t === undefined ? (
+                      {at === null ? (
                         <span className="tag-inline">all</span>
                       ) : (
-                        <button className="link" onClick={() => seekOut(n.t)}>
-                          {fmt(n.t)}
+                        <button className="link" onClick={() => seekOut(at)}>
+                          {fmt(at)}
                         </button>
                       )}
                       <span>{n.text}</span>
@@ -720,7 +729,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                         ×
                       </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
                 {aiReply ? <div className="aireply">{aiReply}</div> : null}
                 {job?.kind === "notes" ? (
