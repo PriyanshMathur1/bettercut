@@ -133,11 +133,15 @@ def prepare(spec: dict, project: Path, log=print) -> dict:
         spec = {**spec, "audio": {**a, "beats": beats(Path(a["music"]), max_seconds=600)}}
         log(f"music: {len(spec['audio']['beats'])} beats found")
         pipeline.save(project, spec)
-    if colour.is_current(spec):
-        return spec
-    new = colour.bake(spec, project, log=log)
-    pipeline.save(project, new)
-    return new
+    from . import reverse
+
+    if not colour.is_current(spec):
+        spec = colour.bake(spec, project, log=log)
+        pipeline.save(project, spec)
+    if not reverse.is_current(spec):  # after colour: a reversed shot is cut from the graded footage
+        spec = reverse.bake(spec, project, log=log)
+        pipeline.save(project, spec)
+    return spec
 
 
 def render(spec: dict, project: Path, out: Path, quality: str = "high", progress=None, log=print, master: bool = True, aspect: str | None = None) -> Path:

@@ -194,6 +194,38 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       if (j.status !== "running") after?.(j);
     });
 
+  /** An edit that needs server-made files (a reversed shot): save it, bake, then load the result. */
+  const updateAndBake = async (fn: (s: ReelSpec) => ReelSpec) => {
+    if (!spec) return;
+    const next = fn(spec);
+    window.clearTimeout(saveTimer.current);
+    setSpec(next);
+    try {
+      await api.save(pid, next);
+      setSaving("saved");
+      const { job: id } = await api.bake(pid);
+      run(id, (j) => {
+        if (j.status === "done") loadSpec(pid);
+      });
+    } catch (e: any) {
+      setJob({ id: "", kind: "colour", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
+  const addClips = async (files: File[]) => {
+    window.clearTimeout(saveTimer.current);
+    try {
+      if (spec) await api.save(pid, spec);
+      setSaving("saved");
+      const { job: id } = await api.addClips(pid, files);
+      run(id, (j) => {
+        if (j.status === "done") loadSpec(pid);
+      });
+    } catch (e: any) {
+      setJob({ id: "", kind: "clips", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
   const startRender = async (quality: string) => {
     window.clearTimeout(saveTimer.current);
     if (spec) await api.save(pid, spec);
@@ -364,7 +396,18 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 />
               ) : null}
             </div>
-            <Timeline spec={spec} placed={placed} duration={duration} t={tOut} notes={notes} onSeek={seekOut} update={update} />
+            <Timeline
+              spec={spec}
+              placed={placed}
+              duration={duration}
+              t={tOut}
+              notes={notes}
+              onSeek={seekOut}
+              update={update}
+              updateAndBake={updateAndBake}
+              onAddClips={addClips}
+              busy={job?.status === "running"}
+            />
             {issues.length ? (
               <div className="issues">
                 {issues.map((i) => (

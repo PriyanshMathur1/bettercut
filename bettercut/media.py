@@ -101,6 +101,28 @@ def assemble(clips: list[Path], out: Path, width: int = 1080, height: int = 1920
     return {"clips": clip_map, **probe(out)}
 
 
+def concat(files: list[Path], out: Path) -> Path:
+    """Join files that were all written by `assemble` (same size, rate and codecs) without re-encoding."""
+    listing = out.with_suffix(".concat.txt")
+    listing.write_text("".join("file '" + str(f).replace("'", "'\\''") + "'\n" for f in files), encoding="utf-8")
+    try:
+        run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", "-movflags", "+faststart", str(out)])
+    finally:
+        listing.unlink(missing_ok=True)
+    return out
+
+
+def reverse_span(src: Path, start: float, end: float, out: Path) -> Path:
+    """Write [start, end] of `src` played backwards (picture and sound)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        "ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-t", f"{max(0.05, end - start):.3f}", "-i", str(src),
+        "-vf", "reverse", "-af", "areverse", "-c:v", "libx264", "-preset", "fast", "-crf", "17", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out),
+    ])
+    return out
+
+
 def face_x(path: Path, duration: float, n: int = 7) -> float | None:
     """Median horizontal face position (0..1) across the clip, or None."""
     try:

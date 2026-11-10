@@ -106,6 +106,92 @@ def make(
     return spec
 
 
+def add_clips(
+    project: Path,
+    clips: list[str],
+    names: list[str] | None = None,
+    model: str = "small",
+    language: str | None = None,
+    max_gap: float = 0.35,
+    keep_takes: bool = False,
+    reframe: bool = True,
+    align: bool = True,
+    log: Log = print,
+) -> dict:
+    """Append clips to an existing reel. Only the new footage is transcribed and cut; every edit already
+    made to the reel is kept. The new shots land at the end of the timeline."""
+    import time
+
+    P = project_paths(project)
+    spec = load(project)
+    if spec["source"].get("matte"):
+        raise RuntimeError("this reel uses a speaker cutout; adding clips to a cutout reel isn't supported yet")
+    files = media.find_clips(clips, None)
+    if not files:
+        raise FileNotFoundError("no video clips found in: " + ", ".join(clips))
+    old_src = Path(spec["source"]["src"])
+    offset = media.probe(old_src)["duration"]
+
+    log(f"adding {len(files)} clip(s)")
+    add = P["work"] / "add.mp4"
+    info = media.assemble(files, add)
+    # a new file name, so players and caches never show the old footage under the same address
+    new_src = P["assets"] / f"source-{int(time.time())}.mp4"
+    media.concat([old_src, add], new_src)
+    total = media.probe(new_src)["duration"]
+
+    log(f"transcribing the new footage with whisper {model}")
+    words = media.transcribe(add, model_size=model, language=language, prompt=", ".join(names) if names else None, align=align, log=log)
+    raw = [{**w, "start": round(w["start"] + offset, 3), "end": round(w["end"] + offset, 3)} for w in words]
+    if P["words"].exists():
+        P["words"].write_text(json.dumps(json.loads(P["words"].read_text(encoding="utf-8")) + raw, indent=1), encoding="utf-8")
+
+    if words:
+        sil = media.speech_gaps(add)
+        words = enrich.merge_split_tokens(words)
+        words = enrich.fix_names(words, names or [])
+        if not keep_takes:
+            words = autocut.pick_takes(words)
+        words = autocut.mark_fillers(words)
+        words = enrich.pick_emphasis(words, keywords=names)
+        words = enrich.attach_emoji(words)
+        segments = autocut.build_segments(words, info["duration"], max_gap=max_gap, silences=sil)
+    else:
+        log("no speech in the new footage: keeping all of it, with no captions")
+        segments = [{"start": 0.0, "end": round(info["duration"], 3)}]
+    if reframe:
+        from . import vision
+
+        segments = vision.frame_segments(add, segments)
+
+    used = {s.get("id") for s in spec.get("segments", [])}
+    n = 0
+    for seg in segments:
+        n += 1
+        while f"a{n}" in used:
+            n += 1
+        seg.update({"id": f"a{n}", "start": round(seg["start"] + offset, 3), "end": round(seg["end"] + offset, 3)})
+        used.add(seg["id"])
+    for w in words:
+        w["start"], w["end"] = round(w["start"] + offset, 3), round(w["end"] + offset, 3)
+
+    spec["words"] = spec.get("words", []) + words
+    spec["segments"] = spec.get("segments", []) + segments
+    spec["source"] = {**spec["source"], "src": str(new_src), "duration": total}
+    for k in ("graded", "gradedMatte"):  # baked from the old footage: rebuilt on the next bake or render
+        spec["source"].pop(k, None)
+    (spec.get("grade") or {}).pop("baked", None)
+
+    clips_file = P["work"] / "clips.json"
+    if clips_file.exists():
+        cm = json.loads(clips_file.read_text(encoding="utf-8"))
+        cm["clips"] = cm.get("clips", []) + [{**c, "start": round(c["start"] + offset, 3)} for c in info.get("clips", [])]
+        clips_file.write_text(json.dumps(cm, indent=2), encoding="utf-8")
+    save(project, spec)
+    log(f"added {len(segments)} shot(s), {len(words)} word(s); the reel's footage is now {total:.1f}s")
+    return spec
+
+
 def load(project: Path) -> dict:
     return json.loads(project_paths(project)["spec"].read_text(encoding="utf-8"))
 

@@ -25,11 +25,16 @@ export const Timeline: React.FC<{
   notes: { t: number; text: string }[];
   onSeek: (t: number) => void;
   update: (fn: (s: ReelSpec) => ReelSpec) => void;
-}> = ({ spec, placed, duration, t, notes, onSeek, update }) => {
+  /** Apply an edit, then have the server prepare the files it needs (a reversed shot). */
+  updateAndBake: (fn: (s: ReelSpec) => ReelSpec) => void;
+  onAddClips: (files: File[]) => void;
+  busy?: boolean;
+}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, busy }) => {
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
   const lane = useRef<HTMLDivElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
 
   const shots = spec.segments;
   const body = totalOutDuration(placed);
@@ -231,6 +236,18 @@ export const Timeline: React.FC<{
                 ))}
               </select>
             </label>
+            <label title="Play this shot backwards. The first time takes a moment while the footage is prepared.">
+              <input
+                type="checkbox"
+                checked={!!selected.reverse}
+                disabled={busy}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  (on ? updateAndBake : update)((s) => ({ ...s, segments: patchShot(s.segments, sel!, { reverse: on || undefined, ...(on ? {} : { reversed: undefined }) }) }));
+                }}
+              />
+              Reverse
+            </label>
             {selected.hold ? (
               <label title="How long this shot holds its last frame">
                 Freeze
@@ -259,6 +276,21 @@ export const Timeline: React.FC<{
           <span className="tl-info">Click a shot to select it</span>
         )}
         <div className="spacer" />
+        <button onClick={() => picker.current?.click()} disabled={busy} title="Add more video clips to the end of this reel">
+          Add clips
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept="video/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files || []);
+            e.target.value = "";
+            if (files.length) onAddClips(files);
+          }}
+        />
         <span className="tl-info">
           {clock(t)} / {clock(duration)}
         </span>
@@ -292,7 +324,12 @@ export const Timeline: React.FC<{
                   onSeek(outAt(e.clientX));
                 }}
               >
-                {speedOf(p) !== 1 ? <i>{speedOf(p)}×</i> : null}
+                {speedOf(p) !== 1 || p.reverse ? (
+                  <i>
+                    {p.reverse ? "◀ " : ""}
+                    {speedOf(p) !== 1 ? `${speedOf(p)}×` : ""}
+                  </i>
+                ) : null}
                 {p.hold ? <b style={{ width: `${(Math.min(10, p.hold) / (p.outEnd - p.outStart)) * 100}%` }} title={`Freeze frame, ${p.hold}s`} /> : null}
               </div>
             ))}

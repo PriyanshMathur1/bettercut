@@ -58,6 +58,11 @@ export const FootageTrack: React.FC<{
         const dur = Math.max(1, holdFrom - from);
         const holdDur = Math.round(s.outEnd * fps) - holdFrom;
         const r = fitRect(srcW, srcH, boxW, boxH, fit, s.cx ?? 0.5, s.cy ?? 0.42);
+        // A reversed shot plays its own backwards file. Source time x sits at (file end - x) in that file.
+        const rev = s.reverse && s.reversed && s.reversed.start <= s.start + 0.002 && s.reversed.end >= s.end - 0.002 ? s.reversed : null;
+        const clipUrl = rev ? resolveAsset(rev.src) : url;
+        const trim = rev ? Math.max(0, Math.round((rev.end - s.end) * fps)) : Math.round(s.start * fps);
+        const lastFrame = rev ? Math.max(0, Math.round((rev.end - s.start) * fps) - 1) : Math.max(0, Math.round(s.end * fps) - 1);
         const css: React.CSSProperties = { position: "absolute", left: r.left, top: r.top, width: r.width, height: r.height, maxWidth: "none", ...style };
         return (
           <React.Fragment key={`${s.index}-${s.start}`}>
@@ -65,14 +70,14 @@ export const FootageTrack: React.FC<{
             <Sequence from={holdFrom} durationInFrames={holdDur} layout="none">
               {/* freeze frame: the shot's last frame, silent */}
               <Freeze frame={0}>
-                <OffthreadVideo src={url} trimBefore={Math.max(0, Math.round(s.end * fps) - 1)} muted transparent={transparent} style={css} />
+                <OffthreadVideo src={clipUrl} trimBefore={lastFrame} muted transparent={transparent} style={css} />
               </Freeze>
             </Sequence>
           ) : null}
           <Sequence from={from} durationInFrames={dur} layout="none">
             <OffthreadVideo
-              src={url}
-              trimBefore={Math.round(s.start * fps)}
+              src={clipUrl}
+              trimBefore={trim}
               playbackRate={rate}
               muted={muted}
               transparent={transparent}
