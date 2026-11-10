@@ -20,7 +20,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from . import catalog as cat
-from . import pipeline, render
+from . import media, pipeline, render
 from .media import COMPOSER, VIDEO_EXT
 from .spec import BRAND_FILE, USER_DIR, apply_look, list_looks, load_brand, validate
 
@@ -157,6 +157,7 @@ async def create_project(
         dst = inputs / Path(f.filename).name
         with open(dst, "wb") as fh:
             shutil.copyfileobj(f.file, fh)
+        media.fix_recording(dst)  # recordings made in the browser carry no length
         saved.append(str(dst))
     if not saved:
         shutil.rmtree(proj)
@@ -186,6 +187,7 @@ async def add_clips(pid: str, files: list[UploadFile] = File(...), names: str = 
         dst = inputs / Path(f.filename).name
         with open(dst, "wb") as fh:
             shutil.copyfileobj(f.file, fh)
+        media.fix_recording(dst)  # recordings made in the browser carry no length
         saved.append(str(dst))
     if not saved:
         raise HTTPException(400, "upload at least one video file")
@@ -249,7 +251,8 @@ async def upload_asset(pid: str, file: UploadFile = File(...)):
     dst = d / re.sub(r"[^\w.-]+", "_", Path(file.filename or "file").name)
     with open(dst, "wb") as fh:
         shutil.copyfileobj(file.file, fh)
-    return {"path": str(dst)}
+    media.fix_recording(dst)
+    return {"path": str(dst), "seconds": media.audio_seconds(dst)}
 
 
 @app.post("/api/projects/{pid}/render")

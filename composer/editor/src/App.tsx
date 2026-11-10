@@ -8,6 +8,7 @@ import { Panel, TABS, type Tab } from "./Panels";
 import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
 import { Settings } from "./Settings";
 import { Timeline } from "./Timeline";
+import { Recorder } from "./Recorder";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -65,6 +66,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [frame, setFrame] = useState(0);
   const [safe, setSafe] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [recorder, setRecorder] = useState<null | "camera" | "voice">(null);
+  const volumeBefore = useRef(1); // preview volume to restore after a voiceover take
+  const voiceAt = useRef(0); // where in the footage the playhead was when a voiceover started
   const [notes, setNotes] = useState<{ t: number; text: string }[]>([]);
   const [noteText, setNoteText] = useState("");
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
@@ -226,6 +230,62 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     }
   };
 
+  /** A new reel is being made: follow its job, then open it. */
+  const created = (id: string, jobId: string) => {
+    refreshProjects();
+    run(jobId, (j) => {
+      refreshProjects();
+      if (j.status === "done") {
+        setPid(id);
+        loadSpec(id);
+      }
+    });
+  };
+
+  /** A take from the camera: a new reel, or more footage for this one. */
+  const recordedVideo = async (file: File, where: "new" | "add") => {
+    setRecorder(null);
+    if (where === "add" && pid) return addClips([file]);
+    try {
+      const f = new FormData();
+      f.append("files", file);
+      f.append("name", "recording");
+      f.append("look", spec?.look || "bold-pop");
+      const r = await api.create(f);
+      created(r.project, r.job);
+    } catch (e: any) {
+      setJob({ id: "", kind: "make", project: "", status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
+  /** A take from the microphone: upload it and lay it over the reel where the playhead was. */
+  const recordedVoice = async (file: File, seconds: number) => {
+    setRecorder(null);
+    try {
+      const r = await api.upload(pid, file);
+      const len = r.seconds && r.seconds > 0 ? r.seconds : seconds;
+      const start = Math.round(voiceAt.current * 1000) / 1000;
+      update((s) => ({ ...s, voiceovers: [...(s.voiceovers || []), { src: r.path, start, end: Math.round((start + len) * 1000) / 1000, volume: 1 }] }));
+    } catch (e: any) {
+      setJob({ id: "", kind: "voiceover", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
+  /** While a voiceover records, the reel plays silently so you can narrate to the picture. */
+  const voiceRecording = (on: boolean) => {
+    const p = player.current;
+    if (!p) return;
+    // Turn the volume down, don't mute: muting the player while it holds sounds crashes the preview.
+    if (on) {
+      volumeBefore.current = p.getVolume();
+      p.setVolume(0);
+      p.play();
+    } else {
+      p.pause();
+      p.setVolume(volumeBefore.current);
+    }
+  };
+
   const startRender = async (quality: string) => {
     window.clearTimeout(saveTimer.current);
     if (spec) await api.save(pid, spec);
@@ -279,6 +339,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           ))}
         </select>
         <button onClick={() => setShowNew(true)}>+ New reel</button>
+        <button onClick={() => setRecorder("camera")} title="Record yourself in the browser, with a teleprompter">
+          Record
+        </button>
         {cloud && pid ? (
           <button
             className="ghost"
@@ -393,6 +456,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                   clickToPlay
                   spaceKeyToPlayOrPause
                   acknowledgeRemotionLicense
+                  numberOfSharedAudioTags={0}
                 />
               ) : null}
             </div>
@@ -406,6 +470,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               update={update}
               updateAndBake={updateAndBake}
               onAddClips={addClips}
+              onVoiceover={() => {
+                voiceAt.current = sourceNow;
+                setRecorder("voice");
+              }}
               busy={job?.status === "running"}
             />
             {issues.length ? (
@@ -523,6 +591,16 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           }}
         />
       ) : null}
+      {recorder ? (
+        <Recorder
+          mode={recorder}
+          canAdd={!!pid && !!spec && !spec.source.matte}
+          onClose={() => setRecorder(null)}
+          onVideo={recordedVideo}
+          onVoice={recordedVoice}
+          onRecording={recorder === "voice" ? voiceRecording : undefined}
+        />
+      ) : null}
       {showNew && catalog ? (
         <NewReel
           cfg={cfg}
@@ -530,14 +608,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           onClose={() => setShowNew(false)}
           onCreated={(id, jobId) => {
             setShowNew(false);
-            refreshProjects();
-            run(jobId, (j) => {
-              refreshProjects();
-              if (j.status === "done") {
-                setPid(id);
-                loadSpec(id);
-              }
-            });
+            created(id, jobId);
           }}
         />
       ) : null}

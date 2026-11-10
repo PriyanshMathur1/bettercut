@@ -135,7 +135,7 @@ export const api = {
     const f = new FormData();
     f.append("file", file);
     return af(`/api/projects/${pid}/upload`, { method: "POST", body: f })
-      .then((r) => j<{ path: string; url?: string }>(r))
+      .then((r) => j<{ path: string; url?: string; seconds?: number }>(r))
       .then((r) => (r.url && addMedia({ [r.path]: r.url }), r));
   },
   render: (pid: string, quality: string, aspects: string[]) =>

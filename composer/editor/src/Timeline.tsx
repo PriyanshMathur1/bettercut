@@ -7,7 +7,7 @@ import { effectsByFamily } from "../../src/reel/motion/effects";
 
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
-import { toOutput } from "../../src/reel/timeline";
+import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
 const TRANSITIONS = effectsByFamily("transition");
 
@@ -101,7 +101,7 @@ const KeyRow: React.FC<{
     </div>
   );
 };
-type Extra = { kind: "overlays" | "broll"; i: number };
+type Extra = { kind: "overlays" | "broll" | "voiceovers"; i: number };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -124,8 +124,10 @@ export const Timeline: React.FC<{
   /** Apply an edit, then have the server prepare the files it needs (a reversed shot). */
   updateAndBake: (fn: (s: ReelSpec) => ReelSpec) => void;
   onAddClips: (files: File[]) => void;
+  /** Open the microphone recorder; the take is laid over the reel at the playhead. */
+  onVoiceover: () => void;
   busy?: boolean;
-}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, busy }) => {
+}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, busy }) => {
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
@@ -151,7 +153,14 @@ export const Timeline: React.FC<{
   const mine = pieces.filter((x) => x.base === sel);
   const overlays = spec.overlays.map((o, i) => ({ o, i, r: rangeToOutput(placed, o.start, o.end) })).filter((x) => x.r) as { o: ReelSpec["overlays"][number]; i: number; r: { start: number; end: number } }[];
   const broll = spec.broll.map((b, i) => ({ b, i, r: rangeToOutput(placed, b.start, b.end) })).filter((x) => x.r) as { b: ReelSpec["broll"][number]; i: number; r: { start: number; end: number } }[];
-  const extraItem = extra ? (spec[extra.kind] as { start: number; end: number }[])[extra.i] : null;
+  // a voiceover plays for its whole length from where its start lands, whatever is cut underneath
+  const voices = (spec.voiceovers || [])
+    .map((v, i) => {
+      const at = snapToOutput(placed, v.start);
+      return at === null ? null : { v, i, r: { start: at, end: Math.min(duration, at + (v.end - v.start)) } };
+    })
+    .filter((x): x is { v: NonNullable<ReelSpec["voiceovers"]>[number]; i: number; r: { start: number; end: number } } => !!x);
+  const extraItem = extra ? ((spec[extra.kind] || []) as { start: number; end: number }[])[extra.i] : null;
 
   const canSplit = t < body - 0.01;
   const split = () => {
@@ -163,7 +172,7 @@ export const Timeline: React.FC<{
   const remove = () => {
     if (extra && extraItem) {
       const { kind, i } = extra;
-      update((s) => ({ ...s, [kind]: (s[kind] as unknown[]).filter((_, j) => j !== i) }));
+      update((s) => ({ ...s, [kind]: ((s[kind] || []) as unknown[]).filter((_, j) => j !== i) }));
       setExtra(null);
       return;
     }
@@ -259,7 +268,8 @@ export const Timeline: React.FC<{
     setExtra({ kind, i });
     setSel(null);
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const how = e.clientX - box.left < 7 ? "start" : box.right - e.clientX < 7 ? "end" : "move";
+    // a voiceover is a fixed recording: it can be moved, not stretched
+    const how = kind === "voiceovers" ? "move" : e.clientX - box.left < 7 ? "start" : box.right - e.clientX < 7 ? "end" : "move";
     const perPx = duration / lane.current!.getBoundingClientRect().width; // output seconds per pixel
     const x0 = e.clientX;
     const move = (ev: PointerEvent) => {
@@ -267,7 +277,7 @@ export const Timeline: React.FC<{
       if (Math.abs(ev.clientX - x0) < 3) return; // a click, not a drag
       const out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
       const at = toSource(placed, out);
-      update((s) => ({ ...s, [kind]: (s[kind] as { start: number; end: number }[]).map((x, j) => (j === i ? placeSpan(x, how, at, s.source.duration) : x)) }));
+      update((s) => ({ ...s, [kind]: ((s[kind] || []) as { start: number; end: number }[]).map((x, j) => (j === i ? placeSpan(x, how, at, kind === "voiceovers" ? Infinity : s.source.duration) : x)) }));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -296,7 +306,7 @@ export const Timeline: React.FC<{
           Split
         </button>
         <button onClick={remove} disabled={extraItem ? false : sel === null || shots.length <= 1} title={extraItem ? "Remove the selected overlay (Delete)" : "Remove the selected shot (Delete)"}>
-          {extraItem ? "Delete overlay" : "Delete shot"}
+          {extraItem ? (extra?.kind === "voiceovers" ? "Delete voiceover" : "Delete overlay") : "Delete shot"}
         </button>
         <button onClick={freeze} disabled={!canSplit} title="Hold the picture at the playhead for one second">
           Freeze 1s
@@ -416,7 +426,7 @@ export const Timeline: React.FC<{
             </span>
           </>
         ) : extraItem ? (
-          <span className="tl-info">Drag to move · drag an edge to resize</span>
+          <span className="tl-info">{extra?.kind === "voiceovers" ? "Drag to move" : "Drag to move · drag an edge to resize"}</span>
         ) : (
           <span className="tl-info">Click a shot to select it</span>
         )}
@@ -431,6 +441,9 @@ export const Timeline: React.FC<{
             Snap to beat
           </label>
         ) : null}
+        <button onClick={onVoiceover} disabled={busy || !canSplit} title="Record narration from your microphone, starting at the playhead">
+          Voiceover
+        </button>
         <button onClick={() => picker.current?.click()} disabled={busy} title="Add more video clips to the end of this reel">
           Add clips
         </button>
@@ -473,7 +486,7 @@ export const Timeline: React.FC<{
         />
       ) : null}
       <div className="tl-scroll">
-        <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%` }} onPointerDown={scrub}>
+        <div className={`tl-lane ${voices.length ? "tall" : ""}`} ref={lane} style={{ width: `${zoom * 100}%` }} onPointerDown={scrub}>
           <div className="tl-ruler">
             {beats.map((b) => (
               <em key={b} style={{ left: pct(b) }} />
@@ -547,6 +560,21 @@ export const Timeline: React.FC<{
               </div>
             ))}
           </div>
+          {voices.length ? (
+            <div className="tl-track voices">
+              {voices.map(({ v, i, r }) => (
+                <div
+                  key={`v${i}`}
+                  className={`ov voice ${extra?.kind === "voiceovers" && extra.i === i ? "sel" : ""}`}
+                  style={{ left: pct(r.start), width: pct(Math.max(0.1, r.end - r.start)) }}
+                  title={`Voiceover, ${(v.end - v.start).toFixed(1)}s`}
+                  onPointerDown={dragExtra("voiceovers", i, r)}
+                >
+                  voiceover
+                </div>
+              ))}
+            </div>
+          ) : null}
           {notes
             .filter((n) => n.t !== null && n.t !== undefined)
             .map((n, i) => (

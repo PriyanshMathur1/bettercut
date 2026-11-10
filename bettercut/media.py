@@ -48,6 +48,32 @@ def probe(path: str | Path) -> dict:
     return {"width": w, "height": h, "fps": round(fps, 3), "duration": round(dur, 3)}
 
 
+def audio_seconds(path: str | Path) -> float:
+    """Length of any media file (audio included), 0 when the file doesn't say."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout
+    try:
+        return round(float(out.strip()), 3)
+    except ValueError:
+        return 0.0
+
+
+def fix_recording(path: str | Path) -> Path:
+    """Browser recordings (MediaRecorder) are written as a live stream with no length in the file, so
+    players and this pipeline read them as 0 seconds long. Rewriting the container, without re-encoding,
+    adds the length. Files that already have one are left alone."""
+    path = Path(path)
+    if audio_seconds(path) > 0:
+        return path
+    tmp = path.with_name(path.stem + ".fixed" + path.suffix)
+    try:
+        run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(path), "-c", "copy", str(tmp)])
+        if audio_seconds(tmp) > 0:
+            tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
+
+
 def find_clips(paths: list[str], newest: int | None = None) -> list[Path]:
     files: list[Path] = []
     for p in paths:

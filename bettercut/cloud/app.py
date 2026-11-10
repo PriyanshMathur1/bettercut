@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import delete, func, select
 
 from .. import catalog as cat
-from ..media import COMPOSER, VIDEO_EXT, probe
+from ..media import COMPOSER, VIDEO_EXT, audio_seconds, fix_recording, probe
 from ..spec import DEFAULT_BRAND, apply_look, list_looks, validate
 from . import agent, connector, db, guard, jobs, memory, storage, vault
 from .auth import Caller, caller
@@ -339,6 +339,7 @@ async def create_project(
                 continue
             dst = proj / "inputs" / f"{i:02d}_{_safe_name(f.filename)}"
             budget -= await _save_upload(f, dst, budget)
+            fix_recording(dst)  # recordings made in the browser carry no length
             info = probe(dst)
             if not info.get("duration"):
                 raise HTTPException(400, f"{f.filename} isn't a video this editor can read")
@@ -375,6 +376,7 @@ async def add_clips(pid: str, files: list[UploadFile] = File(...), names: str = 
                 continue
             dst = folder / f"{i:02d}_{_safe_name(f.filename)}"
             budget -= await _save_upload(f, dst, budget)
+            fix_recording(dst)  # recordings made in the browser carry no length
             info = probe(dst)
             if not info.get("duration"):
                 raise HTTPException(400, f"{f.filename} isn't a video this editor can read")
@@ -487,10 +489,11 @@ async def upload_asset(pid: str, file: UploadFile = File(...), me: Caller = Depe
     rel = f"assets/user/{_safe_name(file.filename)}"
     dst = storage.project_dir(me.id, pid) / rel
     await _save_upload(file, dst, settings().max_upload_mb << 20)
+    fix_recording(dst)
     key = storage.key_for(me.id, pid, rel)
     st = storage.store()
     st.put(key, dst)
-    return {"path": storage.TOKEN + rel, "url": st.url(key)}
+    return {"path": storage.TOKEN + rel, "url": st.url(key), "seconds": audio_seconds(dst)}
 
 
 def _enqueue_for(pid: str, me: Caller, kind: str, params: dict) -> dict:
