@@ -720,3 +720,15 @@ def test_vertical_footage_still_makes_a_reel(tmp_path, monkeypatch):
     _fake_make(monkeypatch, {"width": 1080, "height": 1920, "fps": 30.0})
     spec = pipeline.make(tmp_path / "p", ["clip.mp4"], reframe=False, log=lambda m: None)
     assert (spec["width"], spec["height"], spec["fps"]) == (1080, 1920, 30)
+
+
+def test_silent_footage_gets_one_shot_per_clip():
+    from bettercut.pipeline import whole_clip_shots
+
+    clips = [{"name": "a", "start": 0.0, "seconds": 4.0}, {"name": "b", "start": 4.0, "seconds": 6.0}, {"name": "c", "start": 10.0, "seconds": 2.0}]
+    shots = whole_clip_shots(clips, 12.04)  # the joined file runs a few frames longer than the clips add up to
+    assert [(s["start"], s["end"]) for s in shots] == [(0.0, 4.0), (4.0, 10.0), (10.0, 12.04)]
+    assert len({s["id"] for s in shots}) == 3
+    # one clip, or no clip list (an old project): a single shot for all of it
+    assert whole_clip_shots(clips[:1], 4.0) == [{"id": "s1", "start": 0.0, "end": 4.0}]
+    assert whole_clip_shots([], 9.5) == [{"id": "s1", "start": 0.0, "end": 9.5}]

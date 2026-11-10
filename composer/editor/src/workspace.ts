@@ -82,6 +82,9 @@ export function subTabs(group: RailGroup): string[] {
   return group.id === "media" ? [BIN, ...group.tabs] : [...group.tabs];
 }
 
+/** Window event the media bin fires while a clip is dragged, and once more when it is dropped. */
+export const CLIP_DRAG = "bc-clip-drag";
+
 export type BinKind = "clip" | "video" | "image" | "audio" | "voice" | "music";
 
 export interface BinItem {
@@ -111,7 +114,8 @@ export function binItems(clips: readonly { name: string; start: number; seconds:
   const footage: BinItem[] = clips?.length
     ? clips.map((c) => ({ kind: "clip", name: c.name, src: spec.source.src, start: c.start, seconds: c.seconds }))
     : [{ kind: "clip", name: "Footage", src: spec.source.src, start: 0, seconds: spec.source.duration }];
-  const layers: BinItem[] = (spec.layers || []).map((l) => ({
+  // a clip laid over the video is the footage file again: it is already in the bin as that clip
+  const layers: BinItem[] = (spec.layers || []).filter((l) => l.src !== spec.source.src).map((l) => ({
     kind: l.kind === "image" ? "image" : l.kind === "audio" ? "audio" : "video",
     name: baseName(l.src),
     src: l.src,

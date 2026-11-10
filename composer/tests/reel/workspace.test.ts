@@ -136,3 +136,11 @@ test("previous and next cut step from the playhead", () => {
   assert.equal(cutAfter(cuts, 12, 20), 20);
   assert.equal(cutAfter(cuts, 3, 20), 7.5);
 });
+
+test("a clip laid over the video is not listed twice in the bin", () => {
+  const items = binItems([{ name: "a.mov", start: 0, seconds: 12 }], {
+    source: { src: "/p/assets/source.mp4", duration: 12 },
+    layers: [{ kind: "video", src: "/p/assets/source.mp4", start: 3, end: 7 }],
+  });
+  assert.deepEqual(items.map((i) => i.name), ["a.mov"]);
+});

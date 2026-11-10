@@ -1,7 +1,7 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { drawOrder, kindOf, layerBase, layerProblem, layerVolume, moveTrack, newLayer, placeLayer, playable, topTrack, tracksOf, trimLayerStart } from "../../src/reel/layers.ts";
+import { drawOrder, kindOf, layerBase, layerProblem, layerVolume, moveTrack, newLayer, placeLayer, playable, topTrack, tracksOf, trimLayerStart, clipLayer } from "../../src/reel/layers.ts";
 
 const L = (track: number, id: string, kind: "video" | "image" | "audio" = "image") => ({ id, kind, src: id + ".png", track, start: 0, end: 2 });
 
@@ -87,4 +87,18 @@ test("placeLayer sets the resting position, or a keyframe when the position is a
   assert.deepEqual(placeLayer(anim, 4.05, 0.5, 0.6).keys, [{ at: 0, x: 0.1, y: 0.1 }, { at: 4, x: 0.5, y: 0.6 }]); // updates the nearby key
   assert.deepEqual(placeLayer(anim, 2, 0.5, 0.6).keys!.map((k) => k.at), [0, 2, 4]); // adds one in between
   assert.deepEqual([placeLayer(still, 0, 9, -9).x, placeLayer(still, 0, 9, -9).y], [1.5, -0.5]); // stays near the frame
+});
+
+
+test("a clip dropped on a layer track plays its own stretch of the footage", () => {
+  const existing = [{ id: "m1", kind: "image" as const, src: "logo.png", track: 1, start: 0, end: 5 }];
+  const l = clipLayer(existing, "/p/source.mp4", { start: 12, seconds: 8 }, 3);
+  assert.equal(l.kind, "video");
+  assert.equal(l.src, "/p/source.mp4");
+  assert.equal(l.track, 2); // a fresh track on top
+  assert.deepEqual([l.start, l.end], [3, 11]);
+  assert.equal(l.from, 12); // enters the footage file where the clip begins
+  assert.equal(l.media, 20); // and never plays past the clip's end
+  assert.equal(l.scale, 1);
+  assert.notEqual(l.id, "m1");
 });

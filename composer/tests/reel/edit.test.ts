@@ -1,7 +1,7 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { baseOf, freezeAt, MIN_SHOT, MIN_SPAN, moveShot, patchShot, placeSpan, rampShot, removeShot, shotAt, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit.ts";
+import { baseOf, clipAt, freezeAt, insertIndex, MIN_SHOT, moveBefore, placeClip, MIN_SPAN, moveShot, patchShot, placeSpan, rampShot, removeShot, shotAt, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit.ts";
 import { cutList, cutTimes, outputWords, placeSegments, rangeToOutput, snapToOutput, toSource, totalOutDuration } from "../../src/reel/timeline.ts";
 
 const shots = () => [
@@ -123,4 +123,88 @@ test("placeSpan moves and resizes an overlay inside the footage", () => {
   assert.equal(placeSpan(o, "start", 3.95, 10).start, 4 - MIN_SPAN);
   assert.equal(placeSpan(o, "end", 99, 10).end, 10);
   assert.equal(placeSpan(o, "end", 0, 10).end, 2 + MIN_SPAN);
+});
+
+
+// ---- clips placed like separate items ----
+
+const three = () => [
+  { id: "a", start: 0, end: 10 }, // clip A is 0..10
+  { id: "b1", start: 10, end: 14, zoom: 1.3 }, // clip B is 10..20, in two shots
+  { id: "b2", start: 16, end: 20 },
+  { id: "c", start: 20, end: 30 }, // clip C is 20..30
+];
+const ids = (list: { id?: string }[]) => list.map((s) => s.id);
+
+test("insertIndex counts the shots whose middle is before the drop", () => {
+  const spans = [{ start: 0, end: 4 }, { start: 4, end: 10 }, { start: 10, end: 12 }];
+  assert.equal(insertIndex(spans, 0), 0);
+  assert.equal(insertIndex(spans, 1.9), 0);
+  assert.equal(insertIndex(spans, 2.1), 1);
+  assert.equal(insertIndex(spans, 8), 2);
+  assert.equal(insertIndex(spans, 99), 3);
+});
+
+test("moveBefore drops a shot before another, or leaves it when dropped in place", () => {
+  assert.deepEqual(ids(moveBefore(three(), 0, 4)), ["b1", "b2", "c", "a"]);
+  assert.deepEqual(ids(moveBefore(three(), 3, 0)), ["c", "a", "b1", "b2"]);
+  assert.deepEqual(ids(moveBefore(three(), 1, 1)), ids(three()));
+  assert.deepEqual(ids(moveBefore(three(), 1, 2)), ids(three()));
+});
+
+test("clipAt finds the clip a moment belongs to", () => {
+  const clips = [{ start: 0, end: 10 }, { start: 10, end: 20 }];
+  assert.equal(clipAt(clips, 0), 0);
+  assert.equal(clipAt(clips, 9.99), 0);
+  assert.equal(clipAt(clips, 10), 1);
+  assert.equal(clipAt(clips, 25), -1);
+});
+
+test("placing a clip that is on the track moves all its shots, with their edits", () => {
+  const out = placeClip(three(), { start: 10, end: 20 }, 0);
+  assert.equal(out[0].id, "b1");
+  assert.equal(out[0].zoom, 1.3);
+  // b1, the restored middle (14..16), b2, then a and c
+  assert.deepEqual(out.map((s) => [s.start, s.end]), [[10, 14], [14, 16], [16, 20], [0, 10], [20, 30]]);
+});
+
+test("placing a clip brings back the parts that were removed", () => {
+  const cut = [{ id: "a", start: 0, end: 10 }, { id: "c", start: 20, end: 30 }]; // clip B was deleted
+  const out = placeClip(cut, { start: 10, end: 20 }, 2);
+  assert.deepEqual(out.map((s) => [s.start, s.end]), [[0, 10], [20, 30], [10, 20]]);
+  assert.equal(new Set(ids(out)).size, 3);
+});
+
+test("placing a clip never duplicates footage: shots still don't overlap", () => {
+  for (const before of [0, 1, 2, 3, 4]) {
+    const out = placeClip(three(), { start: 0, end: 10 }, before);
+    const sorted = [...out].sort((x, y) => x.start - y.start);
+    for (let i = 1; i < sorted.length; i++) assert.ok(sorted[i].start >= sorted[i - 1].end - 1e-9);
+    assert.equal(out.filter((s) => s.id === "a").length, 1);
+  }
+});
+
+test("a shot running across a clip's edge is cut there, and only the clip's part moves", () => {
+  const across = [{ id: "x", start: 0, end: 15 }, { id: "y", start: 15, end: 30 }]; // clips are 0..10, 10..20, 20..30
+  const out = placeClip(across, { start: 10, end: 20 }, 0);
+  assert.deepEqual(out.map((s) => [s.start, s.end]), [[10, 15], [15, 20], [0, 10], [20, 30]]);
+});
+
+test("dropping a clip where it already plays changes nothing but a join", () => {
+  const out = placeClip(three(), { start: 20, end: 30 }, 3);
+  assert.deepEqual(out.map((s) => [s.start, s.end]), three().map((s) => [s.start, s.end]));
+});
+
+test("a moved clip starts with a real cut, not a seamless join", () => {
+  const joined = [{ id: "a", start: 0, end: 10 }, { id: "b", start: 10, end: 20, join: true }];
+  const out = placeClip(joined, { start: 10, end: 20 }, 0);
+  assert.equal(out[0].id, "b");
+  assert.equal(out[0].join, undefined);
+});
+
+test("the last clip moves even though the footage runs a few frames past it", () => {
+  const list = [{ id: "r", start: 0, end: 4 }, { id: "g", start: 4, end: 8 }, { id: "b", start: 8, end: 12.033 }];
+  const out = placeClip(list, { start: 8, end: 12 }, 0);
+  assert.deepEqual(ids(out), ["b", "r", "g"]);
+  assert.equal(out[0].end, 12.033); // not trimmed
 });

@@ -288,8 +288,8 @@ main.simple > .center { background: #08090c; }
 .s-bin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .s-bin-item { display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; text-align: left; border-radius: 10px; }
 .s-bin-item.off { opacity: .45; }
-.s-bin-item:disabled { cursor: default; opacity: 1; }
-.s-bin-item.off:disabled { opacity: .45; }
+.s-bin-item[data-drag] { cursor: grab; touch-action: none; user-select: none; }
+.s-ghost { position: fixed; left: 0; top: 0; z-index: 50; padding: 4px 10px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; pointer-events: none; box-shadow: 0 6px 20px rgba(0, 0, 0, .5); }
 .s-bin-thumb { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 16 / 10; background: #000; }
 .s-bin-thumb { overflow: hidden; }
 .s-bin-thumb video, .s-bin-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
@@ -335,3 +335,9 @@ aside.right { padding-top: 10px; }
 .tl-heads span { position: absolute; left: 0; right: 0; display: flex; align-items: center; justify-content: center; font: 600 10px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
 .tl-body .tl-scroll { flex: 1; min-width: 0; }
 .tl-lane.razor .shot { cursor: crosshair; }
+
+/* ---- clips on tracks: drop marker and shot names ---- */
+.tl-drop { position: absolute; top: 18px; height: 36px; width: 3px; margin-left: -1.5px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 0 1px #000, 0 0 10px var(--accent); pointer-events: none; z-index: 4; }
+.tl-drop.layer { top: 56px; bottom: 0; height: auto; width: 0; background: none; box-shadow: none; border-left: 2px dashed var(--accent); }
+.tl .shot .nm { position: absolute; left: 6px; right: 4px; bottom: 3px; font-size: 9.5px; line-height: 1; color: #fff; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.tl .shot { cursor: grab; }
