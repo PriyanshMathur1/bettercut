@@ -154,11 +154,19 @@ def prepare(spec: dict, project: Path, log=print) -> dict:
     return spec
 
 
-def render(spec: dict, project: Path, out: Path, quality: str = "high", progress=None, log=print, master: bool = True, aspect: str | None = None) -> Path:
+def render(spec: dict, project: Path, out: Path, quality: str = "high", progress=None, log=print, master: bool = True, aspect: str | None = None,
+           uhd: bool = False) -> Path:
+    """`uhd`: render at twice the size (4K for a 1080-wide reel) from footage rebuilt at full size."""
     issues = blocking(spec)
     if issues:
         raise ValueError("spec problems: " + "; ".join(issues))
+    if uhd and quality == "draft":
+        raise ValueError("a draft can't be 4K")
     spec = prepare(spec, project, log)
+    if uhd:
+        from . import hires
+
+        spec = hires.spec_for_4k(spec, project, log)
     from . import shape as shapes
 
     if aspect and aspect != shapes.native(spec):  # another shape than the project's own: reframe for it
@@ -174,6 +182,10 @@ def render(spec: dict, project: Path, out: Path, quality: str = "high", progress
         ]
         if quality == "draft":
             cmd += ["--scale=0.5"]
+        if uhd:
+            from .hires import SCALE
+
+            cmd += [f"--scale={SCALE}"]
         if quality == "master":
             cmd = [c for c in cmd if not c.startswith("--crf")] + ["--codec=prores", "--prores-profile=hq"]
         proc = subprocess.Popen(cmd, cwd=COMPOSER, env=media.node_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

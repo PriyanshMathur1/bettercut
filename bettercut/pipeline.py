@@ -57,6 +57,7 @@ def make(
         sid, width, height, rate = shapes.resolve(shape, fps, media.probe(files[0]))
         log(f"assembling {len(files)} clip(s) -> {sid.replace('x', ':')} {rate}fps")
         info = media.assemble(files, P["source"], width=width, height=height, fps=rate, stabilize=stabilize)
+        info["stabilize"] = stabilize  # a 4K render rebuilds the footage the same way
         (P["work"] / "clips.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     info = media.probe(P["source"])
     # re-running on an existing project keeps the footage as it was assembled
@@ -232,5 +233,8 @@ def save(project: Path, spec: dict) -> None:
 
 def next_version(project: Path) -> int:
     r = project_paths(project)["renders"]
-    nums = [int(p.stem.split("-v")[-1]) for p in r.glob("*-v*.mp4") if p.stem.split("-v")[-1].isdigit()]
+    import re
+
+    # every render counts, whatever follows the number: -phone, -16x9, -4k, or a .mov master
+    nums = [int(m.group(1)) for p in r.glob("*-v*.*") if (m := re.search(r"-v(\d+)(?:-|$)", p.stem))]
     return max(nums, default=0) + 1

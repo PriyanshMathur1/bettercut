@@ -30,6 +30,7 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **Multi-camera.** Add other cameras that filmed the same moment. BetterCut lines them up by their sound and cuts to whoever is talking, or you pick the camera at the playhead.
 - **Screen recordings that zoom on clicks.** Record your screen in the browser, with your mic. BetterCut zooms in wherever something happens on screen and pans between spots; move, resize or remove any zoom.
 - **Review links.** Share a link to the latest render. People watch it in their browser and pin comments to a moment and a spot on the picture, with no account; you jump to each one, resolve it, or hand the open ones to the AI as notes.
+- **4K export.** Render at twice the size (2160x3840 for a vertical reel). The footage is rebuilt from your full-size clips, so 4K clips stay sharp; the editor keeps a light copy for the preview.
 - **Add clips later.** Append more footage to a reel you have already edited; only the new clips are transcribed.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.

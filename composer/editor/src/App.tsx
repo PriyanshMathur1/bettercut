@@ -471,10 +471,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     }
   };
 
-  const startRender = async (quality: string) => {
+  const startRender = async (quality: string, uhd = false) => {
     try {
       await saved();
-      const { job: id } = await api.render(pid, quality, aspects);
+      const { job: id } = await api.render(pid, quality, aspects, uhd);
       run(id, () => refreshProjects());
     } catch (e: any) {
       setJob({ id: "", kind: "render", project: pid, status: "error", progress: 0, log: [e.message], result: null });
@@ -689,7 +689,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 <span>Safe zone</span>
               </label>
             ) : null}
-            <ExportMenu busy={job?.status === "running"} shapes={aspects.length} onRender={startRender} onFile={exportFile} />
+            <ExportMenu busy={job?.status === "running"} shapes={aspects.length} onRender={startRender} onFile={exportFile} uhd={!cloud} />
           </>
         ) : null}
       </header>
