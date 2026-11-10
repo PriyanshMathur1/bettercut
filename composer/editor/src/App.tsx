@@ -7,6 +7,7 @@ import { api, forPlayer, watchJob, type Catalog, type CloudConfig, type Job, typ
 import { Panel, TABS, type Tab } from "./Panels";
 import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
 import { Settings } from "./Settings";
+import { Timeline } from "./Timeline";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -363,7 +364,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 />
               ) : null}
             </div>
-            <Timeline spec={spec} placed={placed} duration={duration} t={tOut} cuts={cuts} notes={notes} onSeek={seekOut} />
+            <Timeline spec={spec} placed={placed} duration={duration} t={tOut} notes={notes} onSeek={seekOut} update={update} />
             {issues.length ? (
               <div className="issues">
                 {issues.map((i) => (
@@ -497,56 +498,6 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           }}
         />
       ) : null}
-    </div>
-  );
-};
-
-const Timeline: React.FC<{
-  spec: ReelSpec;
-  placed: ReturnType<typeof placeSegments>;
-  duration: number;
-  t: number;
-  cuts: number[];
-  notes: { t: number; text: string }[];
-  onSeek: (t: number) => void;
-}> = ({ spec, placed, duration, t, notes, onSeek }) => {
-  const pct = (x: number) => `${(x / duration) * 100}%`;
-  const overlays = spec.overlays
-    .map((o) => ({ o, r: rangeToOutput(placed, o.start, o.end) }))
-    .filter((x) => x.r) as { o: ReelSpec["overlays"][number]; r: { start: number; end: number } }[];
-  const broll = spec.broll.map((b) => ({ b, r: rangeToOutput(placed, b.start, b.end) })).filter((x) => x.r) as any[];
-  return (
-    <div
-      className="timeline"
-      onClick={(e) => {
-        const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-        onSeek(((e.clientX - r.left) / r.width) * duration);
-      }}
-    >
-      <div className="track segs">
-        {placed.map((s) => (
-          <div key={s.index} className={`seg ${s.index % 2 ? "b" : ""}`} style={{ left: pct(s.outStart), width: pct(s.outEnd - s.outStart) }} title={`${s.start.toFixed(2)}–${s.end.toFixed(2)}s source`} />
-        ))}
-        {spec.endCard?.enabled ? <div className="seg end" style={{ left: pct(duration - spec.endCard.duration), width: pct(spec.endCard.duration) }} /> : null}
-      </div>
-      <div className="track ovs">
-        {overlays.map(({ o, r }, i) => (
-          <div key={i} className="ov" style={{ left: pct(r.start), width: pct(r.end - r.start) }} title={o.kind}>
-            {o.kind}
-          </div>
-        ))}
-        {broll.map(({ b, r }: any, i: number) => (
-          <div key={`b${i}`} className="ov broll" style={{ left: pct(r.start), width: pct(r.end - r.start) }} title={b.src}>
-            b-roll
-          </div>
-        ))}
-      </div>
-      {notes
-        .filter((n) => n.t !== null && n.t !== undefined)
-        .map((n, i) => (
-          <div key={i} className="note-pin" style={{ left: pct(n.t) }} title={n.text} />
-        ))}
-      <div className="playhead" style={{ left: pct(t) }} />
     </div>
   );
 };
