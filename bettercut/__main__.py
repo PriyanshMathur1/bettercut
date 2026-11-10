@@ -88,6 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("validate")
     v.add_argument("project")
     sub.add_parser("sfx")
+    mc = sub.add_parser("mcp", help="connect Claude Desktop / Claude Code: MCP over stdin/stdout (starts the editor if needed)")
+    mc.add_argument("--port", type=int, default=int(os.environ.get("BETTERCUT_PORT", 4790)))
+    mc.add_argument("--config", action="store_true", help="print what to paste into Claude Desktop and run for Claude Code")
     u = sub.add_parser("ui", help="start the editor at http://localhost:4790")
     u.add_argument("--port", type=int, default=4790)
     c = sub.add_parser("cloud", help="start the multi-user hosted editor (sign-in, per-user projects, bring-your-own model)")
@@ -167,6 +170,13 @@ def main(argv: list[str] | None = None) -> int:
 
         print(len(generate()), "sounds")
         return 0
+    if a.cmd == "mcp":
+        from . import connect
+
+        if a.config:
+            print(json.dumps(connect.client_config(a.port), indent=2))
+            return 0
+        return connect.bridge(a.port)
     if a.cmd == "ui":
         from .server import serve
 

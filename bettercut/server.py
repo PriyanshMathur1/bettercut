@@ -102,6 +102,41 @@ def _steps(project: Path) -> dict:
     return {"canUndo": bool(_stack(project, "history")), "canRedo": bool(_stack(project, "redo"))}
 
 
+# Who changed the reel last, so the open editor can pick up changes made elsewhere (Claude, a finished job)
+# without reloading over its own saves. The version is the spec file's change time.
+
+def version_of(project: Path) -> int | None:
+    f = project / "spec.json"
+    return f.stat().st_mtime_ns // 1000 if f.exists() else None  # microseconds: exact in the editor's JavaScript numbers
+
+
+def head_of(project: Path) -> dict:
+    """{version, author, summary}: author is "user" (the editor), "agent" (Claude), or "job" (anything else)."""
+    v = version_of(project)
+    try:
+        h = json.loads((project / "work" / "head.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        h = {}
+    if h.get("version") == v:
+        return {"version": v, "author": h.get("author", "job"), "summary": h.get("summary", "")}
+    return {"version": v, "author": "job", "summary": ""}
+
+
+def mark(project: Path, author: str, summary: str = "") -> None:
+    d = project / "work"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "head.json").write_text(json.dumps({"version": version_of(project), "author": author, "summary": summary[:300]}), encoding="utf-8")
+
+
+def save_spec(project: Path, spec: dict, author: str, summary: str = "") -> None:
+    """Save a change as one Undo step and say who made it."""
+    old = pipeline.load(project)
+    if old != spec:
+        _history(project, old)
+        pipeline.save(project, spec)
+        mark(project, author, summary)
+
+
 def _allowed(path: Path) -> bool:
     rp = path.resolve()
     roots = [PROJECTS.resolve(), USER_DIR.resolve(), (COMPOSER / "public").resolve()]
@@ -112,7 +147,7 @@ def _allowed(path: Path) -> bool:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "projects": str(PROJECTS), "claude": shutil.which(CLAUDE) is not None}
+    return {"ok": True, "app": "bettercut", "projects": str(PROJECTS), "claude": shutil.which(CLAUDE) is not None}
 
 
 @app.get("/api/catalog")
@@ -167,13 +202,7 @@ async def create_project(
     """`zoom`: the clips are screen recordings; zoom in where something happens once the reel is made."""
     if shape != shapes.AUTO and shape not in shapes.SHAPES:
         raise HTTPException(400, "unknown shape")
-    pid = _slug(name)
-    base = pid
-    i = 2
-    while (PROJECTS / pid).exists():
-        pid = f"{base}-{i}"
-        i += 1
-    proj = PROJECTS / pid
+    pid, proj = _new_project(name)
     inputs = proj / "inputs"
     inputs.mkdir(parents=True)
     saved = []
@@ -188,20 +217,41 @@ async def create_project(
     if not saved:
         shutil.rmtree(proj)
         raise HTTPException(400, "upload at least one video file")
+    return {"project": pid, "job": _make_job(pid, proj, saved, look=look, names=names, cutout=cutout, hook=hook, model=model, shape=shape, zoom=zoom)}
 
+
+def _new_project(name: str) -> tuple[str, Path]:
+    pid = _slug(name)
+    base = pid
+    i = 2
+    while (PROJECTS / pid).exists():
+        pid = f"{base}-{i}"
+        i += 1
+    proj = PROJECTS / pid
+    proj.mkdir(parents=True)
+    return pid, proj
+
+
+def _make_job(pid: str, proj: Path, clips: list[str], look: str = "bold-pop", names: str = "", cutout: bool = False,
+              hook: str | None = None, model: str = "small", shape: str = "auto", zoom: bool = False) -> str:
     def work(job, log):
         kw = {"names": [n.strip() for n in names.split(",") if n.strip()], "cutout": cutout, "model": model, "shape": shape, "log": log}
         if hook is not None:
             kw["hook"] = hook
-        pipeline.make(proj, saved, look=look, **kw)
+        pipeline.make(proj, clips, look=look, **kw)
         if zoom:
             from . import screenzoom
 
             screenzoom.auto_zoom(proj, log=log)
         return {"project": pid}
 
-    job = _job("make", pid, work)
-    return {"project": pid, "job": job["id"]}
+    return _job("make", pid, work)["id"]
+
+
+def make_project(clips: list[str], name: str = "reel", look: str = "bold-pop", shape: str = "auto", zoom: bool = False) -> tuple[str, str]:
+    """A new reel from files already on this computer (used by the Claude connection): (project id, job id)."""
+    pid, proj = _new_project(name)
+    return pid, _make_job(pid, proj, clips, look=look, shape=shape, zoom=zoom)
 
 
 @app.post("/api/projects/{pid}/clips")
@@ -221,13 +271,18 @@ async def add_clips(pid: str, files: list[UploadFile] = File(...), names: str = 
         saved.append(str(dst))
     if not saved:
         raise HTTPException(400, "upload at least one video file")
+    return {"job": add_clips_job(pid, saved, names=names, model=model)}
+
+
+def add_clips_job(pid: str, clips: list[str], names: str = "", model: str = "small") -> str:
+    proj = _proj(pid)
 
     def work(job, log):
         _history(proj, pipeline.load(proj))  # the old footage file is kept, so Undo brings the reel back
-        spec = pipeline.add_clips(proj, saved, names=[n.strip() for n in names.split(",") if n.strip()], model=model, log=log)
+        spec = pipeline.add_clips(proj, clips, names=[n.strip() for n in names.split(",") if n.strip()], model=model, log=log)
         return {"project": pid, "shots": len(spec["segments"])}
 
-    return {"job": _job("clips", pid, work)["id"]}
+    return _job("clips", pid, work)["id"]
 
 
 @app.post("/api/projects/{pid}/angles")
@@ -250,13 +305,20 @@ async def add_angles(pid: str, files: list[UploadFile] = File(...), auto: bool =
         saved.append(str(dst))
     if not saved:
         raise HTTPException(400, "upload at least one video file")
+    return {"job": add_angles_job(pid, saved, auto=auto)}
+
+
+def add_angles_job(pid: str, clips: list[str], auto: bool = True) -> str:
+    from . import multicam
+
+    proj = _proj(pid)
 
     def work(job, log):
         _history(proj, pipeline.load(proj))
-        spec = multicam.add_angles(proj, saved, log=log, auto=auto)
+        spec = multicam.add_angles(proj, clips, log=log, auto=auto)
         return {"angles": len(spec.get("angles") or []), "switches": len(spec.get("cams") or [])}
 
-    return {"job": _job("angles", pid, work)["id"]}
+    return _job("angles", pid, work)["id"]
 
 
 @app.post("/api/projects/{pid}/autocam")
@@ -295,7 +357,13 @@ def get_spec(pid: str):
     if not (proj / "spec.json").exists():
         raise HTTPException(409, "still processing")
     spec = pipeline.load(proj)
-    return {"spec": spec, "issues": validate(spec), "clips": pipeline.clip_list(proj), **_steps(proj)}
+    return {"spec": spec, "issues": validate(spec), "clips": pipeline.clip_list(proj), "version": version_of(proj), **_steps(proj)}
+
+
+@app.get("/api/projects/{pid}/head")
+def get_head(pid: str):
+    """Cheap poll for the editor: has the reel changed elsewhere (Claude, a finished job)?"""
+    return head_of(_proj(pid))
 
 
 @app.put("/api/projects/{pid}/spec")
@@ -304,10 +372,7 @@ async def put_spec(pid: str, req: Request):
     spec = await req.json()
     if spec.get("version") != 1 or "source" not in spec:
         raise HTTPException(400, "not a reel spec")
-    old = pipeline.load(proj)
-    if old != spec:  # saving the same thing again is not a step to undo
-        _history(proj, old)
-        pipeline.save(proj, spec)
+    save_spec(proj, spec, "user")  # saving the same thing again is not a step to undo
     return {"ok": True, "issues": validate(spec), **_steps(proj)}
 
 
@@ -321,6 +386,7 @@ def undo(pid: str):
     _push(proj, "redo", pipeline.load(proj))  # what we are leaving, so Redo can come back to it
     h[-1].unlink()
     pipeline.save(proj, spec)
+    mark(proj, "user")
     return {"spec": spec, **_steps(proj)}
 
 
@@ -334,6 +400,7 @@ def redo(pid: str):
     _history(proj, pipeline.load(proj), keep_redo=True)
     r[-1].unlink()
     pipeline.save(proj, spec)
+    mark(proj, "user")
     return {"spec": spec, **_steps(proj)}
 
 
@@ -362,11 +429,15 @@ async def upload_asset(pid: str, file: UploadFile = File(...)):
 
 @app.post("/api/projects/{pid}/render")
 async def start_render(pid: str, req: Request):
-    proj = _proj(pid)
+    _proj(pid)
     body = await req.json() if (await req.body()) else {}
-    quality = body.get("quality", "high")
-    uhd = bool(body.get("uhd")) and quality != "draft"
-    aspects = shapes.aspects_for(pipeline.load(proj), body.get("aspects"))
+    return {"job": start_render_job(pid, body.get("quality", "high"), body.get("aspects"), bool(body.get("uhd")))}
+
+
+def start_render_job(pid: str, quality: str = "high", aspects_asked: list[str] | None = None, uhd: bool = False) -> str:
+    proj = _proj(pid)
+    uhd = uhd and quality != "draft"
+    aspects = shapes.aspects_for(pipeline.load(proj), aspects_asked)
 
     def work(job, log):
         from .export import write_all
@@ -392,7 +463,7 @@ async def start_render(pid: str, req: Request):
         log("exports: .srt .vtt .fcpxml")
         return {"render": names[0], "renders": names, "qa": report}
 
-    return {"job": _job("render", pid, work)["id"]}
+    return _job("render", pid, work)["id"]
 
 
 @app.post("/api/projects/{pid}/notes")
@@ -672,6 +743,34 @@ async def review_comment(token: str, req: Request):
 def review_page(token: str):
     _reviewed(token)
     return FileResponse(REVIEW_PAGE, media_type="text/html", headers=_PRIVATE)
+
+
+# ---- Claude (MCP) ----------------------------------------------------------------------
+
+@app.post("/mcp")
+async def mcp(request: Request):
+    """Edit reels from Claude Desktop / Claude Code (see connect.py). Only answers this computer."""
+    from . import connect
+
+    if not connect.local_request(request.headers.get("host"), request.headers.get("origin")):
+        return JSONResponse({"error": "BetterCut only answers apps on this computer"}, status_code=403)
+    try:
+        msg = await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, status_code=400)
+    base = f"http://{request.headers.get('host') or '127.0.0.1'}"
+    import anyio
+
+    if isinstance(msg, list):
+        out = [r for r in [await anyio.to_thread.run_sync(connect.handle, m, base) for m in msg] if r is not None]
+        return JSONResponse(out) if out else Response(status_code=202)
+    reply = await anyio.to_thread.run_sync(connect.handle, msg, base)
+    return JSONResponse(reply) if reply is not None else Response(status_code=202)
+
+
+@app.get("/mcp")
+def mcp_get():
+    return Response(status_code=405, headers={"Allow": "POST"})
 
 
 # ---- UI ----------------------------------------------------------------------------

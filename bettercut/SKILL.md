@@ -15,6 +15,7 @@ PY -m bettercut look <project> <look-id>                          # re-style, ke
 PY -m bettercut mimic <file-or-url> --name "creator style"        # new look in ~/.bettercut/looks
 PY -m bettercut render <project> --aspect all             # 9x16 + 4x5 + 1x1 + 16x9 ; --quality master = ProRes HQ
 PY -m bettercut render <project> --4k                     # twice the size (2160x3840 for 9:16), footage rebuilt from the full-size clips
+PY -m bettercut mcp [--config]                           # connect Claude Desktop / Claude Code (MCP); the editor also serves http://127.0.0.1:4790/mcp
 PY -m bettercut colour <project>                          # bake colour grade + voice enhancement now
 PY -m bettercut export <project>                          # .srt .vtt .fcpxml (finish the cut in Resolve / Final Cut)
 PY -m bettercut broll <project>                           # stock b-roll for punch words (needs PEXELS_API_KEY)
