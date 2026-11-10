@@ -27,6 +27,7 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **One-click animation.** Make a layer or overlay fade, slide, zoom, pop or spin in and out, or pulse, float and sway, with one choice. Each preset writes ordinary keyframes you can fine-tune.
 - **Motion cards.** Animated donut and bar charts, a row of big numbers, a before-and-after, chapter markers and a gradient title, filled in with plain lines like "Followers: 12.4k". Numbers count up and keep their $, % or k.
 - **Masks and a keyframe graph.** Show only part of a layer through a rectangle, rounded rectangle or ellipse with a soft or hard edge. See each animated property as a curve and drag its keyframes to change when and how far things move.
+- **Multi-camera.** Add other cameras that filmed the same moment. BetterCut lines them up by their sound and cuts to whoever is talking, or you pick the camera at the playhead.
 - **Add clips later.** Append more footage to a reel you have already edited; only the new clips are transcribed.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.

@@ -378,3 +378,11 @@ kbd { display: inline-block; min-width: 1.5em; padding: 1px 6px; border: 1px sol
 .tl-graph-svg { display: block; width: 100%; height: 130px; background: var(--panel-2); border-top: 1px solid var(--line); touch-action: none; }
 .tl-graph-svg circle { fill: var(--panel); stroke: var(--accent); stroke-width: 3px; vector-effect: non-scaling-stroke; }
 .tl-graph-svg circle.sel { fill: var(--accent); }
+
+.cam-row { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; flex: none; overflow: hidden; }
+.cam-row .tl-keys button i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.cam-row .tl-keys button.on { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cam-row .warn { color: #ffc46b; }
+.cam-strip { position: relative; height: 14px; margin: 0 8px 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.cam-strip > div { position: absolute; top: 0; bottom: 0; }
+.cam-strip .cam-head { width: 2px; background: var(--accent); z-index: 1; }

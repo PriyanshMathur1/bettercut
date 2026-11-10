@@ -1,6 +1,7 @@
 import type { Key } from "./keyframes";
 import type { Layer } from "./layers";
 import type { ClipEffect } from "./clipfx";
+import type { Angle, CamCut } from "./multicam";
 // ReelSpec: the single JSON document that fully describes a reel.
 // The pipeline writes it, the editor UI and Claude edit it, Remotion renders it.
 // All times are SOURCE seconds (position in the original clip) unless named `out*`,
@@ -306,6 +307,10 @@ export interface ReelSpec {
   voiceovers?: Voiceover[];
   /** Extra video, images and audio on their own tracks above the footage. */
   layers?: Layer[];
+  /** Other cameras on the same shoot, synced to the main footage by sound. */
+  angles?: Angle[];
+  /** Which camera is on from when ("main" for the main footage); `at` in source seconds. */
+  cams?: CamCut[];
   motion: MotionSettings;
   grade: GradeSettings;
   audio: AudioSettings;

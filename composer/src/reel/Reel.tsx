@@ -222,6 +222,8 @@ export const Reel: React.FC<ReelProps> = (spec) => {
       volume={spec.audio?.voiceVolume ?? 1}
       transparent={opts.matte}
       style={opts.style}
+      angles={spec.angles}
+      cams={spec.cams}
     />
   );
 
@@ -332,7 +334,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
       {layout.blurFill && inBody ? (
         <AbsoluteFill style={{ overflow: "hidden" }}>
           <div style={{ position: "absolute", inset: -60, filter: [shotFilter, "blur(40px) brightness(.55) saturate(1.2)"].filter(Boolean).join(" ") }}>
-            <FootageTrack placed={placed} src={spec.source.graded || spec.source.src} srcW={srcW} srcH={srcH} boxW={W + 120} boxH={H + 120} fit="cover" muted />
+            <FootageTrack placed={placed} src={spec.source.graded || spec.source.src} srcW={srcW} srcH={srcH} boxW={W + 120} boxH={H + 120} fit="cover" muted angles={spec.angles} cams={spec.cams} />
           </div>
         </AbsoluteFill>
       ) : null}

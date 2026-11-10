@@ -11,6 +11,7 @@ import { Timeline } from "./Timeline";
 import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
+import { CamRow } from "./CamRow";
 import { createSaver, type SaveState } from "./saver";
 import { Guard } from "./Guard";
 import { playbackAction, SHORTCUTS, shuttle, stepFrame, typingIn } from "./keys";
@@ -336,6 +337,30 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       });
     } catch (e: any) {
       setJob({ id: "", kind: "clips", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
+  /** Other cameras of the same shoot: synced by sound on the server, then cut to whoever is talking. */
+  const addAngles = async (files: File[]) => {
+    try {
+      await saved();
+      const { job: id } = await api.addAngles(pid, files);
+      run(id, (j) => {
+        if (j.status === "done") loadSpec(pid);
+      });
+    } catch (e: any) {
+      setJob({ id: "", kind: "angles", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+  const autoCams = async () => {
+    try {
+      await saved();
+      const { job: id } = await api.autoCams(pid);
+      run(id, (j) => {
+        if (j.status === "done") loadSpec(pid);
+      });
+    } catch (e: any) {
+      setJob({ id: "", kind: "autocam", project: pid, status: "error", progress: 0, log: [e.message], result: null });
     }
   };
 
@@ -860,6 +885,17 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               inspector={inspector}
               onSelection={setHasSel}
               clips={clips}
+            />
+            <CamRow
+              spec={spec}
+              placed={placed}
+              tOut={tOut}
+              sourceNow={sourceNow}
+              duration={duration}
+              busy={job?.status === "running"}
+              update={update}
+              onAddAngles={addAngles}
+              onAuto={autoCams}
             />
             </Guard>
             {issues.length ? (
