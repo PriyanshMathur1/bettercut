@@ -341,3 +341,11 @@ aside.right { padding-top: 10px; }
 .tl-drop.layer { top: 56px; bottom: 0; height: auto; width: 0; background: none; box-shadow: none; border-left: 2px dashed var(--accent); }
 .tl .shot .nm { position: absolute; left: 6px; right: 4px; bottom: 3px; font-size: 9.5px; line-height: 1; color: #fff; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .tl .shot { cursor: grab; }
+
+/* ---- reliability: save status and crash guard ---- */
+.save.failed { display: inline-flex; align-items: center; gap: 8px; color: var(--danger); font-weight: 700; }
+.save.failed .link { color: var(--accent); font-weight: 700; text-decoration: underline; }
+.guard { margin: 12px; padding: 14px; border: 1px solid var(--danger); border-radius: 10px; background: #2a161a; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.guard p { margin: 0; color: var(--muted); }
+.guard small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.s-keys button:disabled { opacity: .35; }

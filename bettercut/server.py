@@ -73,13 +73,33 @@ def _job(kind: str, project: str | None, fn) -> dict:
     return job
 
 
-def _history(project: Path, spec: dict) -> None:
-    h = project / "work" / "history"
-    h.mkdir(parents=True, exist_ok=True)
-    (h / f"spec-{int(time.time() * 1000)}.json").write_text(json.dumps(spec), encoding="utf-8")
-    olds = sorted(h.glob("spec-*.json"))
-    for f in olds[:-50]:
+def _stack(project: Path, name: str) -> list[Path]:
+    """Saved versions in work/<name>, oldest first."""
+    return sorted((project / "work" / name).glob("spec-*.json"))
+
+
+def _push(project: Path, name: str, spec: dict) -> None:
+    d = project / "work" / name
+    d.mkdir(parents=True, exist_ok=True)
+    stamp = int(time.time() * 1000)
+    while (d / f"spec-{stamp}.json").exists():  # two saves in the same millisecond keep their order
+        stamp += 1
+    (d / f"spec-{stamp}.json").write_text(json.dumps(spec), encoding="utf-8")
+    for f in _stack(project, name)[:-50]:
         f.unlink()
+
+
+def _history(project: Path, spec: dict, keep_redo: bool = False) -> None:
+    """Remember `spec` so Undo can return to it. A new edit ends the chance to redo what was undone."""
+    _push(project, "history", spec)
+    if not keep_redo:
+        for f in _stack(project, "redo"):
+            f.unlink()
+
+
+def _steps(project: Path) -> dict:
+    """Whether there is anything to undo or redo, for the editor's buttons."""
+    return {"canUndo": bool(_stack(project, "history")), "canRedo": bool(_stack(project, "redo"))}
 
 
 def _allowed(path: Path) -> bool:
@@ -210,7 +230,7 @@ def get_spec(pid: str):
     if not (proj / "spec.json").exists():
         raise HTTPException(409, "still processing")
     spec = pipeline.load(proj)
-    return {"spec": spec, "issues": validate(spec), "clips": pipeline.clip_list(proj)}
+    return {"spec": spec, "issues": validate(spec), "clips": pipeline.clip_list(proj), **_steps(proj)}
 
 
 @app.put("/api/projects/{pid}/spec")
@@ -219,21 +239,37 @@ async def put_spec(pid: str, req: Request):
     spec = await req.json()
     if spec.get("version") != 1 or "source" not in spec:
         raise HTTPException(400, "not a reel spec")
-    _history(proj, pipeline.load(proj))
-    pipeline.save(proj, spec)
-    return {"ok": True, "issues": validate(spec)}
+    old = pipeline.load(proj)
+    if old != spec:  # saving the same thing again is not a step to undo
+        _history(proj, old)
+        pipeline.save(proj, spec)
+    return {"ok": True, "issues": validate(spec), **_steps(proj)}
 
 
 @app.post("/api/projects/{pid}/undo")
 def undo(pid: str):
     proj = _proj(pid)
-    h = sorted((proj / "work" / "history").glob("spec-*.json"))
+    h = _stack(proj, "history")
     if not h:
         raise HTTPException(409, "nothing to undo")
     spec = json.loads(h[-1].read_text(encoding="utf-8"))
+    _push(proj, "redo", pipeline.load(proj))  # what we are leaving, so Redo can come back to it
     h[-1].unlink()
     pipeline.save(proj, spec)
-    return {"spec": spec}
+    return {"spec": spec, **_steps(proj)}
+
+
+@app.post("/api/projects/{pid}/redo")
+def redo(pid: str):
+    proj = _proj(pid)
+    r = _stack(proj, "redo")
+    if not r:
+        raise HTTPException(409, "nothing to redo")
+    spec = json.loads(r[-1].read_text(encoding="utf-8"))
+    _history(proj, pipeline.load(proj), keep_redo=True)
+    r[-1].unlink()
+    pipeline.save(proj, spec)
+    return {"spec": spec, **_steps(proj)}
 
 
 @app.post("/api/projects/{pid}/look")
