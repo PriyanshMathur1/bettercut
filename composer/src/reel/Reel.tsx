@@ -22,6 +22,8 @@ import { EFFECT_MAP, combineFX, type FX } from "./motion/effects";
 import { FORMAT_MAP, type FormatLayout } from "./formats";
 import { TranslationLine } from "./captions/TranslationLine";
 import { translationAt } from "./translate";
+import { LayerItem } from "./LayerItem";
+import { drawOrder, layerVolume, playable } from "./layers";
 import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
 import { GradeOverlay, gradeFilter, primaryApprox } from "./grade";
@@ -237,6 +239,14 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   );
 
   // ---- audio: music ducking + sfx ------------------------------------------
+  // media layers, lowest track first so higher tracks are drawn on top
+  const layers = useMemo(
+    () =>
+      drawOrder(spec.layers)
+        .map((l) => ({ l, r: rangeToOutput(placed, l.start, l.end) }))
+        .filter((x): x is { l: NonNullable<typeof spec.layers>[number]; r: { start: number; end: number } } => !!x.r),
+    [spec.layers, placed],
+  );
   // voiceovers: each starts where its start moment plays in the reel and runs for its full length
   const voiceovers = useMemo(
     () =>
@@ -245,10 +255,14 @@ export const Reel: React.FC<ReelProps> = (spec) => {
         .filter((x): x is { v: NonNullable<typeof spec.voiceovers>[number]; at: number; len: number } => x.at !== null && x.len > 0),
     [spec.voiceovers, placed],
   );
-  // the music ducks under spoken words and under voiceovers alike
+  // the music ducks under spoken words, voiceovers, and any layer that makes sound
   const speech = useMemo(
-    () => [...words.map((w) => [w.outStart, w.outEnd] as [number, number]), ...voiceovers.map((x) => [x.at, x.at + x.len] as [number, number])],
-    [words, voiceovers],
+    () => [
+      ...words.map((w) => [w.outStart, w.outEnd] as [number, number]),
+      ...voiceovers.map((x) => [x.at, x.at + x.len] as [number, number]),
+      ...layers.filter(({ l }) => l.kind !== "image" && layerVolume(l) > 0).map(({ l, r }) => [r.start, Math.min(r.end, r.start + playable(l))] as [number, number]),
+    ],
+    [words, voiceovers, layers],
   );
   const musicVol = (f: number) => {
     const a = spec.audio;
@@ -392,6 +406,9 @@ export const Reel: React.FC<ReelProps> = (spec) => {
         </>
       ) : null}
 
+      {layers.map(({ l, r }, i) => (
+        <LayerItem key={`layer${i}-${l.src}`} layer={l} start={r.start} end={r.end} />
+      ))}
       {overlays.map(({ o, r, itemTimes }, i) => (
         <OverlayItem key={o.id || i} o={o} brand={brand} start={r.start} end={r.end} itemTimes={itemTimes} />
       ))}

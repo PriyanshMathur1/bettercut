@@ -1,4 +1,5 @@
 import type { Key } from "./keyframes";
+import type { Layer } from "./layers";
 // ReelSpec: the single JSON document that fully describes a reel.
 // The pipeline writes it, the editor UI and Claude edit it, Remotion renders it.
 // All times are SOURCE seconds (position in the original clip) unless named `out*`,
@@ -291,6 +292,8 @@ export interface ReelSpec {
   broll: BrollClip[];
   /** Recorded narration laid over the reel. */
   voiceovers?: Voiceover[];
+  /** Extra video, images and audio on their own tracks above the footage. */
+  layers?: Layer[];
   motion: MotionSettings;
   grade: GradeSettings;
   audio: AudioSettings;

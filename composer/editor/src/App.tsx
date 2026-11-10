@@ -9,6 +9,9 @@ import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
 import { Settings } from "./Settings";
 import { Timeline } from "./Timeline";
 import { Recorder } from "./Recorder";
+import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
+import { LayerHandle } from "./LayerHandle";
+import { followPlayer, volumeToRestore } from "./preview";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -50,6 +53,8 @@ export const App: React.FC = () => {
   return <Editor cfg={cfg} />;
 };
 
+const VOLUME_KEY = "bc.volumeBeforeTake"; // preview volume to restore after a voiceover take
+
 const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const cloud = cfg.mode === "cloud";
   const [settings, setSettings] = useState<null | "Connect" | "Model" | "Memory" | "Account">(null);
@@ -67,6 +72,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [safe, setSafe] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [recorder, setRecorder] = useState<null | "camera" | "voice">(null);
+  const [layerSel, setLayerSel] = useState<number | null>(null); // layer selected on the timeline
   const volumeBefore = useRef(1); // preview volume to restore after a voiceover take
   const voiceAt = useRef(0); // where in the footage the playhead was when a voiceover started
   const [notes, setNotes] = useState<{ t: number; text: string }[]>([]);
@@ -74,7 +80,12 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
   const [aspects, setAspects] = useState<string[]>(["9x16"]);
   const [wholeReel, setWholeReel] = useState(false);
-  const player = useRef<PlayerRef>(null);
+  const player = useRef<PlayerRef | null>(null);
+  const [playerEl, setPlayerEl] = useState<PlayerRef | null>(null); // the mounted player, for effects that must follow it
+  const setPlayer = useCallback((p: PlayerRef | null) => {
+    player.current = p;
+    setPlayerEl(p);
+  }, []);
   const saveTimer = useRef<number>();
   const versionRef = useRef<number | null | undefined>(undefined); // spec version on screen (cloud)
 
@@ -159,13 +170,23 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const words = useMemo(() => (spec ? outputWords(placed, spec.words) : []), [placed, spec?.words]);
   const inputProps = useMemo(() => (spec ? (forPlayer({ ...spec, safeGuide: safe }) as any) : null), [spec, safe]);
 
+  // A voiceover take silences the preview. If the page closed before the take ended, put the volume back.
   useEffect(() => {
-    const p = player.current;
-    if (!p) return;
-    const on = (e: { detail: { frame: number } }) => setFrame(e.detail.frame);
-    p.addEventListener("frameupdate", on);
-    return () => p.removeEventListener("frameupdate", on);
-  }, [inputProps !== null, pid]);
+    if (!playerEl) return;
+    try {
+      const v = volumeToRestore(localStorage.getItem(VOLUME_KEY));
+      if (v === null) return;
+      localStorage.removeItem(VOLUME_KEY);
+      playerEl.setVolume(v);
+    } catch {}
+  }, [playerEl]);
+
+  // Follow the player's frame. The player mounts only once the reel AND the catalog have loaded, in either
+  // order, so the listener is tied to the player instance itself, not to the reel having loaded.
+  useEffect(() => {
+    if (!playerEl) return;
+    return followPlayer(playerEl, setFrame);
+  }, [playerEl]);
 
   const seekOut = (t: number) => player.current?.seekTo(Math.max(0, Math.round(t * fps)));
 
@@ -230,6 +251,31 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     }
   };
 
+  // the selected layer's drag handle in the preview, while the playhead is on that layer
+  const handle = useMemo(() => {
+    const layer = layerSel !== null ? spec?.layers?.[layerSel] : undefined;
+    if (!layer || layer.kind === "audio") return null;
+    const r = rangeToOutput(placed, layer.start, layer.end);
+    if (!r || tOut < r.start - 0.001 || tOut > r.end + 0.001) return null;
+    const at = Math.max(0, tOut - r.start);
+    const i = layerSel as number;
+    return { layer, at, move: (x: number, y: number) => update((s) => ({ ...s, layers: (s.layers || []).map((l, j) => (j === i ? placeLayer(l, at, x, y) : l)) })) };
+  }, [layerSel, spec?.layers, placed, tOut, update]);
+
+  /** Add a file as a media layer on its own track, starting where the playhead is. */
+  const addMedia = async (file: File) => {
+    const at = sourceNow;
+    try {
+      const problem = layerProblem(file.name, file.type);
+      if (problem) throw new Error(problem);
+      const r = await api.upload(pid, file);
+      const kind = kindOf(file.name, file.type);
+      update((s) => ({ ...s, layers: [...(s.layers || []), newLayer(s.layers, r.path, kind, at, r.seconds || 0)] }));
+    } catch (e: any) {
+      setJob({ id: "", kind: "media", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
   /** A new reel is being made: follow its job, then open it. */
   const created = (id: string, jobId: string) => {
     refreshProjects();
@@ -275,14 +321,21 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const voiceRecording = (on: boolean) => {
     const p = player.current;
     if (!p) return;
-    // Turn the volume down, don't mute: muting the player while it holds sounds crashes the preview.
+    // The player remembers its volume across reloads, so the level to go back to is kept in storage too:
+    // if the page closes mid-take, the next visit restores it (see the effect on the player below).
     if (on) {
       volumeBefore.current = p.getVolume();
+      try {
+        localStorage.setItem(VOLUME_KEY, String(volumeBefore.current));
+      } catch {}
       p.setVolume(0);
       p.play();
     } else {
       p.pause();
       p.setVolume(volumeBefore.current);
+      try {
+        localStorage.removeItem(VOLUME_KEY);
+      } catch {}
     }
   };
 
@@ -443,24 +496,28 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           <section className="center">
             <div className="stage">
               {inputProps ? (
+                <div className="stage-frame">
                 <Player
-                  ref={player}
+                  ref={setPlayer}
                   component={Reel as any}
                   inputProps={inputProps}
                   durationInFrames={Math.max(1, Math.round(duration * fps))}
                   fps={fps}
                   compositionWidth={spec.width || 1080}
                   compositionHeight={spec.height || 1920}
-                  style={{ height: "100%", aspectRatio: "9 / 16", borderRadius: 14, overflow: "hidden" }}
+                  style={{ width: "100%", height: "100%", borderRadius: 14, overflow: "hidden" }}
                   controls
                   clickToPlay
                   spaceKeyToPlayOrPause
                   acknowledgeRemotionLicense
                   numberOfSharedAudioTags={0}
                 />
+                {handle ? <LayerHandle layer={handle.layer} at={handle.at} onMove={handle.move} /> : null}
+                </div>
               ) : null}
             </div>
             <Timeline
+              key={pid} // a different reel starts with nothing selected
               spec={spec}
               placed={placed}
               duration={duration}
@@ -470,6 +527,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               update={update}
               updateAndBake={updateAndBake}
               onAddClips={addClips}
+              onAddMedia={addMedia}
+              onSelectLayer={setLayerSel}
               onVoiceover={() => {
                 voiceAt.current = sourceNow;
                 setRecorder("voice");

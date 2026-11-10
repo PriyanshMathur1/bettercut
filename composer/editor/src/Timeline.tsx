@@ -7,6 +7,7 @@ import { effectsByFamily } from "../../src/reel/motion/effects";
 
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
+import { layerBase, layerVolume, moveTrack, playable, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
 import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
 const TRANSITIONS = effectsByFamily("transition");
@@ -24,6 +25,33 @@ const SHOT_FIELDS: Field[] = [
   { id: "cx", label: "Focus X", step: 0.02, min: 0, max: 1 },
   { id: "cy", label: "Focus Y", step: 0.02, min: 0, max: 1 },
 ];
+
+/**
+ * A number field you can type in freely. While it has focus it shows what you typed, even when that is
+ * empty or half a number ("0."); a value is only sent on when it is a real number, kept inside min..max.
+ */
+const NumField: React.FC<{ value: number; onChange: (v: number) => void; step: number; min?: number; max?: number; disabled?: boolean }> = ({ value, onChange, step, min, max, disabled }) => {
+  const [text, setText] = useState<string | null>(null); // what is being typed; null = show the value
+  return (
+    <input
+      type="number"
+      step={step}
+      min={min}
+      max={max}
+      disabled={disabled}
+      value={text ?? String(Number(value.toFixed(3)))}
+      onFocus={(e) => setText(e.target.value)}
+      onBlur={() => setText(null)}
+      onChange={(e) => {
+        setText(e.target.value);
+        if (e.target.value.trim() === "") return; // cleared to retype: keep the old value until there is a new one
+        const v = Number(e.target.value);
+        if (!Number.isFinite(v)) return;
+        onChange(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)));
+      }}
+    />
+  );
+};
 
 /** Keyframe controls for whatever is selected: add a keyframe at the playhead, edit its values, step between keyframes. */
 const KeyRow: React.FC<{
@@ -66,17 +94,7 @@ const KeyRow: React.FC<{
           {fields.map((f) => (
             <label key={f.id}>
               {f.label}
-              <input
-                type="number"
-                step={f.step}
-                min={f.min}
-                max={f.max}
-                value={Number(((list[i][f.id] as number | undefined) ?? now[f.id]).toFixed(3))}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (Number.isFinite(v)) onChange(setKey(list, list[i].at, { [f.id]: v }));
-                }}
-              />
+              <NumField step={f.step} min={f.min} max={f.max} value={(list[i][f.id] as number | undefined) ?? now[f.id]} onChange={(v) => onChange(setKey(list, list[i].at, { [f.id]: v }))} />
             </label>
           ))}
           <label title="How the values travel from this keyframe to the next">
@@ -101,7 +119,15 @@ const KeyRow: React.FC<{
     </div>
   );
 };
-type Extra = { kind: "overlays" | "broll" | "voiceovers"; i: number };
+type Extra = { kind: "overlays" | "broll" | "voiceovers" | "layers"; i: number; id?: string };
+const LAYER_FIELDS: Field[] = [
+  { id: "x", label: "X", step: 0.02, min: -0.5, max: 1.5 },
+  { id: "y", label: "Y", step: 0.02, min: -0.5, max: 1.5 },
+  { id: "scale", label: "Width", step: 0.05, min: 0.05, max: 4 },
+  { id: "rotate", label: "Turn", step: 5, min: -360, max: 360 },
+  { id: "opacity", label: "Opacity", step: 0.1, min: 0, max: 1 },
+];
+const LANE = 22; // height of one layer track on the timeline
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -126,13 +152,18 @@ export const Timeline: React.FC<{
   onAddClips: (files: File[]) => void;
   /** Open the microphone recorder; the take is laid over the reel at the playhead. */
   onVoiceover: () => void;
+  /** Add a video, image or audio file as a layer on its own track, starting at the playhead. */
+  onAddMedia: (file: File) => void;
+  /** Tells the editor which layer is selected, so it can be dragged in the preview. */
+  onSelectLayer?: (index: number | null) => void;
   busy?: boolean;
-}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, busy }) => {
+}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, onSelectLayer, busy }) => {
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
   const lane = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const mediaPicker = useRef<HTMLInputElement>(null);
   const [snap, setSnap] = useState(true); // land the playhead and trimmed cuts on music beats
 
   // music beats (OUTPUT seconds), found by the server when the music is set
@@ -160,6 +191,27 @@ export const Timeline: React.FC<{
       return at === null ? null : { v, i, r: { start: at, end: Math.min(duration, at + (v.end - v.start)) } };
     })
     .filter((x): x is { v: NonNullable<ReelSpec["voiceovers"]>[number]; i: number; r: { start: number; end: number } } => !!x);
+  // media layers: one lane per track, the highest track at the top like the picture stacks
+  const lays = (spec.layers || []).map((l, i) => ({ l, i, r: rangeToOutput(placed, l.start, l.end) })).filter((x) => x.r) as { l: Layer; i: number; r: { start: number; end: number } }[];
+  const tracks = tracksOf(lays.map((x) => x.l)); // lanes only for layers that are on the timeline
+  // layers whose whole time range sits in footage that was removed: not drawn, so they need another way out
+  const hidden = (spec.layers || []).map((_, i) => i).filter((i) => !lays.some((x) => x.i === i));
+  const allOnTrack = (track: number) => (spec.layers || []).filter((l) => l.track === track).length;
+  const allTracks = tracksOf(spec.layers);
+  const layersTop = 55 + LANE + (voices.length ? LANE : 0);
+  const laneHeight = layersTop + tracks.length * LANE + 1;
+  const selLayer = extra?.kind === "layers" ? lays.find((x) => x.i === extra.i) : undefined;
+  const setLayer = (patch: Partial<Layer>) =>
+    selLayer &&
+    update((s) => ({
+      ...s,
+      layers: (s.layers || []).map((l, j) => {
+        if (j !== selLayer.i) return l;
+        const next: Record<string, unknown> = { ...l, ...patch };
+        for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+        return next as unknown as Layer;
+      }),
+    }));
   const extraItem = extra ? ((spec[extra.kind] || []) as { start: number; end: number }[])[extra.i] : null;
 
   const canSplit = t < body - 0.01;
@@ -194,6 +246,21 @@ export const Timeline: React.FC<{
     update((s) => ({ ...s, segments: freezeAt(s.segments, at, 1) }));
     setSel(null);
   };
+
+  // The selection is an index into a list. If that list changed under it (undo, an edit from the AI,
+  // another reel), the index may now be gone or point at a different item: drop the selection.
+  const selectedItem = extra ? ((spec[extra.kind] || []) as { id?: string }[])[extra.i] : undefined;
+  const staleSelection = !!extra && (!selectedItem || (extra.id !== undefined && selectedItem.id !== extra.id));
+  useEffect(() => {
+    if (staleSelection) setExtra(null);
+  }, [staleSelection]);
+  useEffect(() => {
+    if (sel !== null && sel >= spec.segments.length) setSel(null);
+  }, [sel, spec.segments.length]);
+
+  useEffect(() => {
+    onSelectLayer?.(extra?.kind === "layers" && !staleSelection ? extra.i : null);
+  }, [extra?.kind, extra?.i, staleSelection]);
 
   // keyboard: S splits at the playhead, Delete removes the selected shot, Esc clears the selection
   const keys = useRef({ split, remove });
@@ -265,9 +332,10 @@ export const Timeline: React.FC<{
   const dragExtra = (kind: Extra["kind"], i: number, r: { start: number; end: number }) => (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    setExtra({ kind, i });
+    setExtra({ kind, i, id: ((spec[kind] || []) as { id?: string }[])[i]?.id });
     setSel(null);
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const grabbed = kind === "layers" ? (spec.layers || [])[i] : undefined; // the layer as it was when grabbed
     // a voiceover is a fixed recording: it can be moved, not stretched
     const how = kind === "voiceovers" ? "move" : e.clientX - box.left < 7 ? "start" : box.right - e.clientX < 7 ? "end" : "move";
     const perPx = duration / lane.current!.getBoundingClientRect().width; // output seconds per pixel
@@ -275,9 +343,29 @@ export const Timeline: React.FC<{
     const move = (ev: PointerEvent) => {
       const d = (ev.clientX - x0) * perPx;
       if (Math.abs(ev.clientX - x0) < 3) return; // a click, not a drag
-      const out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
+      let out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
+      // A layer's own file sets two limits, both measured in time on screen (the footage under it may be
+      // sped up, slowed or cut): its start can't be pulled back past the file's beginning, and its end
+      // can't be pushed past the file's end.
+      let from: number | undefined;
+      if (grabbed && grabbed.kind !== "image") {
+        const from0 = grabbed.from ?? 0;
+        if (how === "start") {
+          out = Math.max(out, r.start - from0);
+          from = from0 + (out - r.start); // trimming skips into the media; it doesn't restart it
+        } else if (how === "end") {
+          out = Math.min(out, r.start + playable(grabbed));
+        }
+      }
       const at = toSource(placed, out);
-      update((s) => ({ ...s, [kind]: ((s[kind] || []) as { start: number; end: number }[]).map((x, j) => (j === i ? placeSpan(x, how, at, kind === "voiceovers" ? Infinity : s.source.duration) : x)) }));
+      update((s) => ({
+        ...s,
+        [kind]: ((s[kind] || []) as { start: number; end: number }[]).map((x, j) => {
+          if (j !== i) return x;
+          if (kind === "layers" && how === "start") return trimLayerStart(x as Layer, at, from);
+          return placeSpan(x, how, at, kind === "voiceovers" ? Infinity : s.source.duration);
+        }),
+      }));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -306,7 +394,7 @@ export const Timeline: React.FC<{
           Split
         </button>
         <button onClick={remove} disabled={extraItem ? false : sel === null || shots.length <= 1} title={extraItem ? "Remove the selected overlay (Delete)" : "Remove the selected shot (Delete)"}>
-          {extraItem ? (extra?.kind === "voiceovers" ? "Delete voiceover" : "Delete overlay") : "Delete shot"}
+          {extraItem ? (extra?.kind === "voiceovers" ? "Delete voiceover" : extra?.kind === "layers" ? "Delete layer" : "Delete overlay") : "Delete shot"}
         </button>
         <button onClick={freeze} disabled={!canSplit} title="Hold the picture at the playhead for one second">
           Freeze 1s
@@ -425,6 +513,36 @@ export const Timeline: React.FC<{
               Shot {sel! + 1} of {shots.length} · {(selected.end - selected.start) / speedOf(selected) + (selected.hold || 0) < 10 ? ((selected.end - selected.start) / speedOf(selected) + (selected.hold || 0)).toFixed(1) : Math.round((selected.end - selected.start) / speedOf(selected) + (selected.hold || 0))}s
             </span>
           </>
+        ) : selLayer ? (
+          <>
+            <button
+              onClick={() => update((s) => ({ ...s, layers: moveTrack(s.layers || [], selLayer.i, 1) }))}
+              disabled={allTracks.indexOf(selLayer.l.track) === allTracks.length - 1 && allOnTrack(selLayer.l.track) === 1}
+              title="Bring this layer forward, over the layer above it"
+            >
+              Forward
+            </button>
+            <button
+              onClick={() => update((s) => ({ ...s, layers: moveTrack(s.layers || [], selLayer.i, -1) }))}
+              disabled={allTracks.indexOf(selLayer.l.track) === 0 && allOnTrack(selLayer.l.track) === 1}
+              title="Send this layer back, under the layer below it"
+            >
+              Back
+            </button>
+            {selLayer.l.kind !== "image" ? (
+              <label title={selLayer.l.kind === "video" ? "Sound of this video layer (off by default)" : "Loudness of this sound"}>
+                Volume
+                <select value={layerVolume(selLayer.l)} onChange={(e) => setLayer({ volume: Number(e.target.value) })}>
+                  {[0, 0.25, 0.5, 0.75, 1, 1.5, 2].map((v) => (
+                    <option key={v} value={v}>
+                      {v === 0 ? "Off" : `${Math.round(v * 100)}%`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <span className="tl-info">Track {selLayer.l.track} · drag to move, drag an edge to resize</span>
+          </>
         ) : extraItem ? (
           <span className="tl-info">{extra?.kind === "voiceovers" ? "Drag to move" : "Drag to move · drag an edge to resize"}</span>
         ) : (
@@ -441,6 +559,20 @@ export const Timeline: React.FC<{
             Snap to beat
           </label>
         ) : null}
+        <button onClick={() => mediaPicker.current?.click()} disabled={busy || !canSplit} title="Add a video, image or sound on its own track, starting at the playhead">
+          Add media
+        </button>
+        <input
+          ref={mediaPicker}
+          type="file"
+          accept="video/*,image/*,audio/*"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) onAddMedia(f);
+          }}
+        />
         <button onClick={onVoiceover} disabled={busy || !canSplit} title="Record narration from your microphone, starting at the playhead">
           Voiceover
         </button>
@@ -469,7 +601,47 @@ export const Timeline: React.FC<{
           +
         </button>
       </div>
-      {selOv ? (
+      {hidden.length ? (
+        <div className="tl-keys">
+          <span className="tl-info">
+            {hidden.length === 1 ? "1 layer sits" : `${hidden.length} layers sit`} over footage you removed, so {hidden.length === 1 ? "it isn't" : "they aren't"} shown.
+          </span>
+          <button onClick={() => update((s) => ({ ...s, layers: (s.layers || []).filter((_, i) => !hidden.includes(i)) }))}>{hidden.length === 1 ? "Delete it" : "Delete them"}</button>
+        </div>
+      ) : null}
+      {selLayer && selLayer.l.kind !== "audio" ? (
+        <>
+          <div className="tl-keys">
+            <span className="tl-info">Layer</span>
+            {LAYER_FIELDS.map((f) => (
+              <label key={f.id} title={selLayer.l.keys?.some((k) => typeof k[f.id] === "number") ? "Animated by keyframes: edit the keyframes below" : undefined}>
+                {f.label}
+                <NumField
+                  step={f.step}
+                  min={f.min}
+                  max={f.max}
+                  disabled={!!selLayer.l.keys?.some((k) => typeof k[f.id] === "number")}
+                  value={(layerBase(selLayer.l) as Record<string, number>)[f.id]}
+                  onChange={(v) => setLayer({ [f.id]: v } as Partial<Layer>)}
+                />
+              </label>
+            ))}
+            <label title="Round the corners">
+              Corners
+              <NumField step={0.02} min={0} max={0.5} value={selLayer.l.radius ?? 0} onChange={(v) => setLayer({ radius: v || undefined })} />
+            </label>
+          </div>
+          <KeyRow
+            what="layer"
+            keys={selLayer.l.keys}
+            at={t >= selLayer.r.start - 0.001 && t <= selLayer.r.end + 0.001 ? Math.max(0, t - selLayer.r.start) : null}
+            base={layerBase(selLayer.l)}
+            fields={LAYER_FIELDS}
+            onChange={(keys) => setLayer({ keys })}
+            onGo={(at) => onSeek(selLayer.r.start + at)}
+          />
+        </>
+      ) : selOv ? (
         <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
       ) : selected ? (
         <KeyRow
@@ -486,7 +658,7 @@ export const Timeline: React.FC<{
         />
       ) : null}
       <div className="tl-scroll">
-        <div className={`tl-lane ${voices.length ? "tall" : ""}`} ref={lane} style={{ width: `${zoom * 100}%` }} onPointerDown={scrub}>
+        <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%`, height: laneHeight }} onPointerDown={scrub}>
           <div className="tl-ruler">
             {beats.map((b) => (
               <em key={b} style={{ left: pct(b) }} />
@@ -575,6 +747,26 @@ export const Timeline: React.FC<{
               ))}
             </div>
           ) : null}
+          {tracks.map((tr, row) => (
+            <div key={`t${tr}`} className="tl-track layers" style={{ top: layersTop + (tracks.length - 1 - row) * LANE, height: LANE - 4 }}>
+              {lays
+                .filter((x) => x.l.track === tr)
+                .map(({ l, i, r }) => (
+                  <div
+                    key={`l${i}`}
+                    className={`ov layer ${l.kind} ${extra?.kind === "layers" && extra.i === i ? "sel" : ""}`}
+                    style={{ left: pct(r.start), width: pct(Math.max(0.1, r.end - r.start)) }}
+                    title={`${l.kind === "image" ? "Image" : l.kind === "audio" ? "Sound" : "Video"} layer on track ${l.track}`}
+                    onPointerDown={dragExtra("layers", i, r)}
+                  >
+                    {l.kind}
+                    {(l.keys || []).map((k) => (
+                      <u key={k.at} style={{ left: `${Math.min(100, (k.at / (r.end - r.start)) * 100)}%` }} />
+                    ))}
+                  </div>
+                ))}
+            </div>
+          ))}
           {notes
             .filter((n) => n.t !== null && n.t !== undefined)
             .map((n, i) => (
