@@ -12,6 +12,16 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { followPlayer, volumeToRestore } from "./preview";
+import { askNotes, groupOf, keepTab, railFor, readWorkspace, toggleShape, writeWorkspace, type RailIcon, type Workspace } from "./workspace";
+import { AskBar, ExportMenu, ProjectCard, Rail, SHAPES } from "./Simple";
+
+const storage = () => {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+};
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -79,6 +89,14 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [noteText, setNoteText] = useState("");
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
   const [aspects, setAspects] = useState<string[]>(["9x16"]);
+  const [ws, setWs] = useState<Workspace>(() => readWorkspace(storage()));
+  const [railOpen, setRailOpen] = useState<RailIcon | null>("looks"); // Simple: the open rail button
+  const clipPicker = useRef<HTMLInputElement>(null); // Simple: "Clips" in the Project card
+  const switchWs = (next: Workspace) => {
+    if (next === "simple") setRailOpen(groupOf(tab, railFor(TABS))?.id ?? "looks"); // keep the panel you were on
+    setWs(next);
+    writeWorkspace(storage(), next);
+  };
   const [wholeReel, setWholeReel] = useState(false);
   const player = useRef<PlayerRef | null>(null);
   const [playerEl, setPlayerEl] = useState<PlayerRef | null>(null); // the mounted player, for effects that must follow it
@@ -350,13 +368,13 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     }
   };
 
-  const sendNotes = async () => {
+  const sendNotes = async (list: typeof notes = notes) => {
     if (cloud && !hasModel) return setSettings("Connect");
     window.clearTimeout(saveTimer.current);
     if (spec) await api.save(pid, spec);
     setAiReply("");
     try {
-      const { job: id } = await api.notes(pid, notes);
+      const { job: id } = await api.notes(pid, list);
       run(id, (j) => {
         if (j.status === "done") {
           setNotes([]);
@@ -370,7 +388,30 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   };
   const renderUrl = (r: string | { name: string; url: string }) => (typeof r === "string" ? `/api/projects/${pid}/renders/${r}` : r.url);
   const renderName = (r: string | { name: string }) => (typeof r === "string" ? r : r.name);
-  const tabs = cloud ? TABS.filter((t) => t !== "Mimic") : TABS;
+  const tabs: Tab[] = cloud ? TABS.filter((t) => t !== "Mimic") : [...TABS];
+  const simple = ws === "simple";
+  const rail = railFor(tabs);
+  const group = rail.find((g) => g.id === railOpen);
+  // Simple shows the open rail button's panel; Pro shows whichever tab is picked
+  const shownTab = simple && group ? keepTab(tab, group.tabs) : keepTab(tab, tabs);
+  /** Open a panel from anywhere (the Project card's quick-add buttons). */
+  const openTab = (t: Tab) => {
+    setTab(t);
+    setRailOpen(groupOf(t, rail)?.id ?? null);
+  };
+  const exportFile = (k: "srt" | "vtt" | "fcpxml") => api.exportFile(pid, k, projects.find((p) => p.id === pid)?.title || pid).catch((e) => alert(e.message));
+  const pinNote = () => {
+    if (!noteText.trim()) return;
+    setNotes((n) => [...n, { t: tOut, text: noteText.trim() }].sort((a, b) => (a.t ?? -1) - (b.t ?? -1)));
+    setNoteText("");
+  };
+  /** Ask from the bar: what is typed (about the whole reel) plus any pinned notes. */
+  const ask = () => {
+    const all = askNotes(notes, noteText);
+    setNoteText("");
+    setNotes(all as typeof notes);
+    sendNotes(all as typeof notes);
+  };
 
   const current = projects.find((p) => p.id === pid);
   const activeWord = words.find((w) => tOut >= w.outStart && tOut < w.outEnd)?.index;
@@ -411,6 +452,15 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           </button>
         ) : null}
         <div className="spacer" />
+        <div className="workspace" role="group" aria-label="Editor workspace">
+          <button className={ws === "simple" ? "on" : ""} aria-pressed={ws === "simple"} onClick={() => switchWs("simple")} title="Simple: big preview, icon rail, Ask AI bar and one Export menu. Every feature is here.">
+            Simple
+          </button>
+          <button className={ws === "pro" ? "on" : ""} aria-pressed={ws === "pro"} onClick={() => switchWs("pro")} title="Pro: every panel and control on screen at once">
+            Pro
+          </button>
+        </div>
+        <div className="spacer" />
         {cloud ? (
           <button className="ghost" onClick={() => setSettings("Connect")}>
             {hasModel ? "Settings" : "Connect your AI"}
@@ -426,23 +476,29 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               <input type="checkbox" checked={safe} onChange={(e) => setSafe(e.target.checked)} />
               <span>Safe zone</span>
             </label>
-            <button className="ghost" onClick={() => startRender("draft")} disabled={job?.status === "running"}>
-              Draft
-            </button>
-            <div className="aspects">
-              {["9x16", "4x5", "1x1", "16x9"].map((a) => (
-                <label key={a} className="toggle">
-                  <input type="checkbox" checked={aspects.includes(a)} onChange={(e) => setAspects((x) => (e.target.checked ? [...x, a] : x.filter((y) => y !== a)))} />
-                  <span>{a.replace("x", ":")}</span>
-                </label>
-              ))}
-            </div>
-            <button className="primary" onClick={() => startRender("high")} disabled={job?.status === "running" || !aspects.length}>
-              Render
-            </button>
-            <button className="ghost" title="ProRes HQ master for further finishing" onClick={() => startRender("master")} disabled={job?.status === "running" || !aspects.length}>
-              ProRes
-            </button>
+            {simple ? (
+              <ExportMenu busy={job?.status === "running"} shapes={aspects.length} onRender={startRender} onFile={exportFile} />
+            ) : (
+              <>
+                <button className="ghost" onClick={() => startRender("draft")} disabled={job?.status === "running"}>
+                  Draft
+                </button>
+                <div className="aspects">
+                  {SHAPES.map(({ id: a }) => (
+                    <label key={a} className="toggle">
+                      <input type="checkbox" checked={aspects.includes(a)} onChange={(e) => setAspects((x) => (e.target.checked ? [...x, a] : x.filter((y) => y !== a)))} />
+                      <span>{a.replace("x", ":")}</span>
+                    </label>
+                  ))}
+                </div>
+                <button className="primary" onClick={() => startRender("high")} disabled={job?.status === "running" || !aspects.length}>
+                  Render
+                </button>
+                <button className="ghost" title="ProRes HQ master for further finishing" onClick={() => startRender("master")} disabled={job?.status === "running" || !aspects.length}>
+                  ProRes
+                </button>
+              </>
+            )}
           </>
         ) : null}
       </header>
@@ -479,19 +535,25 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           </button>
         </div>
       ) : (
-        <main>
-          <aside className="left">
-            <nav>
-              {tabs.map((t) => (
-                <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-                  {t}
-                </button>
-              ))}
-            </nav>
-            <div className="panel">
-              <Panel tab={tab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
-            </div>
-          </aside>
+        <main className={simple ? `simple ${group ? "" : "shut"}` : ""}>
+          {simple ? (
+            <Rail rail={rail} open={group ? railOpen : null} tab={shownTab} onOpen={(g) => setRailOpen(g.id)} onTab={setTab} onClose={() => setRailOpen(null)}>
+              <Panel tab={shownTab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
+            </Rail>
+          ) : (
+            <aside className="left">
+              <nav>
+                {tabs.map((t) => (
+                  <button key={t} className={shownTab === t ? "on" : ""} onClick={() => setTab(t)}>
+                    {t}
+                  </button>
+                ))}
+              </nav>
+              <div className="panel">
+                <Panel tab={shownTab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
+              </div>
+            </aside>
+          )}
 
           <section className="center">
             <div className="stage">
@@ -516,6 +578,24 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 </div>
               ) : null}
             </div>
+            {simple ? (
+              <>
+                <AskBar
+                  value={noteText}
+                  onChange={setNoteText}
+                  at={fmt(tOut)}
+                  queued={notes}
+                  onPin={pinNote}
+                  onUnpin={(i) => setNotes((ns) => ns.filter((_, j) => j !== i))}
+                  onSeek={seekOut}
+                  onAsk={ask}
+                  busy={job?.status === "running"}
+                  needsModel={cloud && !hasModel}
+                  who={cloud ? "your AI" : "Claude"}
+                />
+                {aiReply ? <div className="aireply">{aiReply}</div> : null}
+              </>
+            ) : null}
             <Timeline
               key={pid} // a different reel starts with nothing selected
               spec={spec}
@@ -542,6 +622,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 ))}
               </div>
             ) : null}
+            {!simple ? (
             <div className="exportbar">
               Export:
               {(["srt", "vtt", "fcpxml"] as const).map((k) => (
@@ -550,6 +631,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 </button>
               ))}
             </div>
+            ) : null}
             {current?.renders.length ? (
               <div className="renders">
                 Renders:{" "}
@@ -563,6 +645,40 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           </section>
 
           <aside className="right">
+            {simple ? (
+              <>
+                <ProjectCard
+                  shapes={aspects}
+                  onShape={(id) => setAspects((x) => toggleShape(x, id))}
+                  length={fmt(duration)}
+                  shots={spec.segments.length}
+                  cut={spec.words.filter((w) => w.cut).length}
+                  onAdd={(what) => {
+                    if (what === "text") openTab("Titles");
+                    else if (what === "music") openTab("Audio");
+                    else if (what === "captions") openTab("Captions");
+                    else if (what === "broll") openTab("B-roll");
+                    else if (what === "voice") {
+                      voiceAt.current = sourceNow;
+                      setRecorder("voice");
+                    } else clipPicker.current?.click();
+                  }}
+                />
+                <input
+                  ref={clipPicker}
+                  type="file"
+                  accept="video/*"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    e.target.value = "";
+                    if (files.length) addClips(files);
+                  }}
+                />
+              </>
+            ) : (
+              <>
             <h3>Notes on the video</h3>
             <div className="row">
               <input
@@ -598,10 +714,12 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 </li>
               ))}
             </ul>
-            <button className="primary" disabled={(!notes.length && !(cloud && !hasModel)) || job?.status === "running"} onClick={sendNotes}>
+            <button className="primary" disabled={(!notes.length && !(cloud && !hasModel)) || job?.status === "running"} onClick={() => sendNotes()}>
               {cloud && !hasModel ? "Connect your AI model to send notes" : `Send ${notes.length || ""} note${notes.length === 1 ? "" : "s"} to ${cloud ? "your AI" : "Claude"}`}
             </button>
             {aiReply ? <div className="aireply">{aiReply}</div> : null}
+              </>
+            )}
             {job?.kind === "notes" ? (
               <div className="joblog">
                 {job.log.slice(-8).map((l, i) => (

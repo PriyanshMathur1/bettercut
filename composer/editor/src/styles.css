@@ -211,3 +211,70 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .sheet.rec textarea { width: 100%; resize: vertical; }
 .field.inline { flex: 1; }
 .sheet.rec .check { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+
+/* ---- Simple / Pro workspace switch ---- */
+.workspace { display: flex; gap: 2px; padding: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+.workspace button { background: none; border: 0; border-radius: 7px; padding: 5px 14px; font-size: 13px; color: var(--muted); }
+.workspace button:hover:not(.on) { color: var(--text); }
+.workspace button.on { background: var(--panel-2); color: var(--text); box-shadow: 0 0 0 1px var(--line) inset; }
+
+/* ---- Simple workspace: icon rail, big preview, Ask bar, Project card ---- */
+main.simple { grid-template-columns: 372px minmax(0, 1fr) 340px; gap: 10px; padding: 10px; }
+main.simple.shut { grid-template-columns: 76px minmax(0, 1fr) 340px; }
+main.simple .tl-bar { flex-wrap: wrap; }
+main.simple > aside, main.simple > .center { border: 1px solid var(--line); border-radius: 14px; }
+main.simple > .center { background: #08090c; }
+.s-left { display: grid; grid-template-columns: 76px 1fr; overflow: hidden; }
+.s-left.shut { grid-template-columns: 76px; }
+.s-rail { display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; border-right: 1px solid var(--line); overflow: auto; }
+.s-left.shut .s-rail { border-right: 0; }
+.s-rail button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 2px; background: none; border: 0; border-radius: 10px; color: var(--muted); font-size: 11px; }
+.s-rail button:hover { color: var(--text); background: var(--panel-2); }
+.s-rail button.on { color: var(--accent); background: rgba(255, 210, 63, .1); }
+.s-drawer { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.s-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 4px; font-size: 15px; }
+.s-drawer .panel { flex: 1; min-height: 0; }
+.s-seg { display: flex; gap: 2px; margin: 6px 12px 0; padding: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+.s-seg button { flex: 1; background: none; border: 0; border-radius: 7px; padding: 5px 8px; font-size: 13px; color: var(--muted); }
+.s-seg button.on { background: var(--panel-2); color: var(--text); }
+
+.s-ask { flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+.s-ask:focus-within { border-color: var(--accent); }
+.s-ask-row { display: flex; align-items: center; gap: 8px; }
+.s-ask-row input { flex: 1; background: none; border: 0; padding: 8px 4px; font-size: 14px; }
+.s-ask-row input:focus-visible { outline: 0; }
+.s-ask-row button { flex: none; white-space: nowrap; }
+.s-spark { color: var(--accent); padding-left: 8px; }
+.s-pins { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 6px; }
+.s-pin { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: var(--panel-2); border-radius: 99px; padding: 2px 4px 2px 10px; }
+.s-pin em { font-style: normal; color: var(--brand); }
+.s-pin .link { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.s-card h3:first-child { margin-top: 12px; }
+.s-shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.s-shapes button { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding: 10px 2px 8px; min-height: 92px; }
+.s-shapes button i { display: block; height: 30px; max-width: 40px; border: 1.7px solid currentColor; border-radius: 4px; margin-bottom: 6px; color: var(--muted); }
+.s-shapes button b { font-size: 12px; }
+.s-shapes button small { font-size: 10px; color: var(--muted); }
+.s-shapes button.on { border-color: var(--accent); background: rgba(255, 210, 63, .08); }
+.s-shapes button.on i { color: var(--accent); }
+.s-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.s-stats div { display: flex; flex-direction: column; gap: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+.s-stats small { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.s-stats b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.s-adds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.s-adds button { text-align: left; padding: 9px 12px; font-size: 13px; }
+
+.s-export { position: relative; }
+.s-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 8; width: 270px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 2px; }
+.s-menu button { display: flex; flex-direction: column; gap: 1px; text-align: left; background: none; border: 0; padding: 8px 10px; }
+.s-menu button:hover { background: var(--panel-2); }
+.s-menu small { color: var(--muted); font-size: 11.5px; }
+.s-menu hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+
+@media (max-width: 1100px) {
+  main.simple, main.simple.shut { grid-template-columns: 1fr; }
+  .s-left { height: 420px; }
+  .s-left.shut { height: auto; grid-template-columns: 1fr; }
+  .s-left.shut .s-rail { flex-direction: row; }
+}
