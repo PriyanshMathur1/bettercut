@@ -732,3 +732,64 @@ def test_silent_footage_gets_one_shot_per_clip():
     # one clip, or no clip list (an old project): a single shot for all of it
     assert whole_clip_shots(clips[:1], 4.0) == [{"id": "s1", "start": 0.0, "end": 4.0}]
     assert whole_clip_shots([], 9.5) == [{"id": "s1", "start": 0.0, "end": 9.5}]
+
+
+# ---- undo and redo ----
+
+def _editor(tmp_path, monkeypatch):
+    """The local server on an empty projects folder holding one saved project."""
+    from fastapi.testclient import TestClient
+    from bettercut import pipeline, server
+
+    monkeypatch.setattr(server, "PROJECTS", tmp_path)
+    proj = tmp_path / "p"
+    (proj / "work").mkdir(parents=True)
+    pipeline.save(proj, {"version": 1, "source": {"src": "s.mp4"}, "title": "one", "segments": [], "words": []})
+    return TestClient(server.app)
+
+
+def _save(c, title):
+    r = c.put("/api/projects/p/spec", json={"version": 1, "source": {"src": "s.mp4"}, "title": title, "segments": [], "words": []})
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_undo_then_redo_walks_back_and_forward(tmp_path, monkeypatch):
+    c = _editor(tmp_path, monkeypatch)
+    title = lambda: c.get("/api/projects/p/spec").json()["spec"]["title"]
+    assert c.get("/api/projects/p/spec").json()["canUndo"] is False
+    _save(c, "two")
+    steps = _save(c, "three")
+    assert (steps["canUndo"], steps["canRedo"]) == (True, False)
+
+    r = c.post("/api/projects/p/undo").json()
+    assert (r["spec"]["title"], r["canUndo"], r["canRedo"]) == ("two", True, True)
+    r = c.post("/api/projects/p/undo").json()
+    assert (r["spec"]["title"], r["canUndo"], r["canRedo"]) == ("one", False, True)
+    assert c.post("/api/projects/p/undo").status_code == 409
+
+    r = c.post("/api/projects/p/redo").json()
+    assert (r["spec"]["title"], r["canUndo"], r["canRedo"]) == ("two", True, True)
+    r = c.post("/api/projects/p/redo").json()
+    assert (r["spec"]["title"], r["canRedo"]) == ("three", False)
+    assert c.post("/api/projects/p/redo").status_code == 409
+    assert title() == "three"
+
+
+def test_a_new_edit_after_undo_ends_redo(tmp_path, monkeypatch):
+    c = _editor(tmp_path, monkeypatch)
+    _save(c, "two")
+    c.post("/api/projects/p/undo")
+    steps = _save(c, "another way")
+    assert steps["canRedo"] is False
+    assert c.post("/api/projects/p/redo").status_code == 409
+    assert c.post("/api/projects/p/undo").json()["spec"]["title"] == "one"
+
+
+def test_saving_the_same_thing_again_is_not_a_step(tmp_path, monkeypatch):
+    c = _editor(tmp_path, monkeypatch)
+    _save(c, "two")
+    c.post("/api/projects/p/undo")
+    steps = _save(c, "one")  # the editor re-saving what is already there
+    assert (steps["canUndo"], steps["canRedo"]) == (False, True)
+    assert c.post("/api/projects/p/redo").json()["spec"]["title"] == "two"

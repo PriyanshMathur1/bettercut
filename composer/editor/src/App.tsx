@@ -11,6 +11,8 @@ import { Timeline } from "./Timeline";
 import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
+import { createSaver, type SaveState } from "./saver";
+import { Guard } from "./Guard";
 import { followPlayer, volumeToRestore } from "./preview";
 import { askNotes, BIN, binItems, cutAfter, cutBefore, fmtClock, groupOf, keepTab, railFor, shapeOf, subTabs, toggleShape, withoutSent, type BinItem, type RailIcon } from "./workspace";
 import { AskBar, ExportMenu, MediaBin, ProjectCard, Rail, Transport } from "./Shell";
@@ -52,7 +54,11 @@ export const App: React.FC = () => {
         </div>
       </div>
     );
-  return <Editor cfg={cfg} />;
+  return (
+    <Guard name="The editor">
+      <Editor cfg={cfg} />
+    </Guard>
+  );
 };
 
 const VOLUME_KEY = "bc.volumeBeforeTake"; // preview volume to restore after a voiceover take
@@ -68,7 +74,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [spec, setSpec] = useState<ReelSpec | null>(null);
   const [issues, setIssues] = useState<string[]>([]);
   const [tab, setTab] = useState<Tab>("Looks");
-  const [saving, setSaving] = useState<"saved" | "saving" | "dirty">("saved");
+  const [saving, setSaving] = useState<SaveState>("saved");
+  const [saveError, setSaveError] = useState("");
+  const [steps, setSteps] = useState<{ canUndo?: boolean; canRedo?: boolean }>({}); // what Undo and Redo can do now
   const [job, setJob] = useState<Job | null>(null);
   const [frame, setFrame] = useState(0);
   const [safe, setSafe] = useState(false);
@@ -101,7 +109,6 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     player.current = p;
     setPlayerEl(p);
   }, []);
-  const saveTimer = useRef<number>();
   const versionRef = useRef<number | null | undefined>(undefined); // spec version on screen (cloud)
 
   const refreshCatalog = useCallback(() => api.catalog().then(setCatalog), []);
@@ -121,7 +128,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       setClips(r.clips || []);
       setSpec(r.spec);
       setIssues(r.issues);
-      setSaving("saved");
+      setSteps({ canUndo: r.canUndo, canRedo: r.canRedo });
     } catch (e: any) {
       setSpec(null);
       setIssues([e.message]);
@@ -158,25 +165,86 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     };
   }, [cloud, pid]);
 
+  // Autosave for this project. A save that fails is shown, kept and retried: see saver.ts.
+  const saver = useMemo(
+    () =>
+      createSaver<ReelSpec>({
+        save: async (next) => {
+          const r = await api.save(pid, next);
+          setIssues(r.issues);
+          setSteps({ canUndo: r.canUndo ?? true, canRedo: r.canRedo });
+        },
+        onState: (state, error) => {
+          setSaving(state);
+          // the browser's own wording for "no answer" means nothing to most people
+          setSaveError(!error ? "" : /failed to fetch|networkerror|load failed/i.test(error) ? "Can't reach BetterCut. Your edit is kept and will be saved when it is back." : error);
+        },
+      }),
+    [pid],
+  );
+  useEffect(() => {
+    setSaving("saved");
+    setSaveError("");
+    return () => void saver.flush(); // leaving this project: save what is still pending
+  }, [saver]);
+
   /** Edit the spec locally and autosave after a short pause. */
   const update = useCallback(
     (fn: (s: ReelSpec) => ReelSpec) => {
       setSpec((s) => {
         if (!s) return s;
         const next = fn(s);
-        setSaving("dirty");
-        window.clearTimeout(saveTimer.current);
-        saveTimer.current = window.setTimeout(async () => {
-          setSaving("saving");
-          const r = await api.save(pid, next);
-          setIssues(r.issues);
-          setSaving("saved");
-        }, 700);
+        saver.push(next);
         return next;
       });
     },
-    [pid],
+    [saver],
   );
+
+  /** Save what is pending before something that reads the project on the server. Throws if it can't. */
+  const saved = async () => {
+    if (!(await saver.flush())) throw new Error("Your last edit couldn't be saved, so this was not started. Check the connection and press Retry.");
+  };
+
+  // closing the tab with an edit not yet saved: ask first
+  useEffect(() => {
+    if (saving === "saved") return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [saving === "saved"]);
+
+  /** Undo or redo one step. Pending edits are saved first, so the step is taken from what you see. */
+  const step = async (way: "undo" | "redo") => {
+    try {
+      await saved();
+      const r = await api[way](pid);
+      saver.cancel();
+      setSpec(r.spec);
+      setSteps({ canUndo: r.canUndo, canRedo: r.canRedo });
+    } catch (e: any) {
+      setJob({ id: "", kind: way, project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return; // typing: the field's own undo
+      const k = e.key.toLowerCase();
+      if (k === "z") stepRef.current(e.shiftKey ? "redo" : "undo");
+      else if (k === "y") stepRef.current("redo");
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, []);
 
   const placed = useMemo(() => (spec ? placeSegments(spec) : []), [spec?.segments, spec?.words]);
   const fps = spec?.fps || 30;
@@ -241,11 +309,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const updateAndBake = async (fn: (s: ReelSpec) => ReelSpec) => {
     if (!spec) return;
     const next = fn(spec);
-    window.clearTimeout(saveTimer.current);
     setSpec(next);
+    saver.push(next);
     try {
-      await api.save(pid, next);
-      setSaving("saved");
+      await saved();
       const { job: id } = await api.bake(pid);
       run(id, (j) => {
         if (j.status === "done") loadSpec(pid);
@@ -256,10 +323,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   };
 
   const addClips = async (files: File[]) => {
-    window.clearTimeout(saveTimer.current);
     try {
-      if (spec) await api.save(pid, spec);
-      setSaving("saved");
+      await saved();
       const { job: id } = await api.addClips(pid, files);
       run(id, (j) => {
         if (j.status === "done") loadSpec(pid);
@@ -359,9 +424,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   };
 
   const startRender = async (quality: string) => {
-    window.clearTimeout(saveTimer.current);
-    if (spec) await api.save(pid, spec);
     try {
+      await saved();
       const { job: id } = await api.render(pid, quality, aspects);
       run(id, () => refreshProjects());
     } catch (e: any) {
@@ -371,10 +435,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
 
   const sendNotes = async (list: typeof notes = notes) => {
     if (cloud && !hasModel) return setSettings("Connect");
-    window.clearTimeout(saveTimer.current);
-    if (spec) await api.save(pid, spec);
     setAiReply("");
     try {
+      await saved();
       const { job: id } = await api.notes(pid, list);
       run(id, (j) => {
         if (j.status === "done") {
@@ -490,9 +553,23 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
         ) : null}
         {pid && spec ? (
           <>
-            <span className={`save ${saving}`}>{saving === "saved" ? "Saved" : saving === "saving" ? "Saving…" : "Editing"}</span>
-            <button className="ghost" onClick={async () => setSpec((await api.undo(pid)).spec)}>
+            {saving === "failed" ? (
+              <span className="save failed" role="alert" title={saveError}>
+                Not saved
+                <button className="link" onClick={() => saver.retry()}>
+                  Retry
+                </button>
+              </span>
+            ) : (
+              <span className={`save ${saving}`} aria-live="polite">
+                {saving === "saved" ? "Saved" : saving === "saving" ? "Saving…" : "Editing"}
+              </span>
+            )}
+            <button className="ghost" onClick={() => step("undo")} disabled={steps.canUndo === false} title="Undo the last change (⌘Z)">
               Undo
+            </button>
+            <button className="ghost" onClick={() => step("redo")} disabled={!steps.canRedo} title="Redo what you undid (⇧⌘Z)">
+              Redo
             </button>
             {nativeShape === "9x16" ? (
               <label className="toggle" title="Show where Reels and Shorts put their buttons and captions">
@@ -550,6 +627,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             }}
             onClose={() => setRailOpen(null)}
           >
+            <Guard name="This panel" key={showBin ? "bin" : shownTab}>
             {showBin ? (
               <MediaBin
                 items={items}
@@ -564,6 +642,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             ) : (
               <Panel tab={shownTab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
             )}
+            </Guard>
           </Rail>
           <input
             ref={clipPicker}
@@ -591,6 +670,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
 
           <section className="center">
             <div className="stage">
+              <Guard name="The preview" key={`pv-${pid}`}>
               {inputProps ? (
                 <div className="stage-frame" style={{ "--ar": (spec.width || 1080) / (spec.height || 1920) } as React.CSSProperties}>
                   <Player
@@ -611,6 +691,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                   {handle ? <LayerHandle layer={handle.layer} at={handle.at} onMove={handle.move} /> : null}
                 </div>
               ) : null}
+              </Guard>
             </div>
             <Transport
               t={tOut}
@@ -624,7 +705,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               }}
               onPrevCut={() => seekOut(cutBefore(cuts, tOut))}
               onNextCut={() => seekOut(cutAfter(cuts, tOut, duration))}
-              onUndo={async () => setSpec((await api.undo(pid)).spec)}
+              onUndo={() => step("undo")}
+              onRedo={() => step("redo")}
+              canUndo={steps.canUndo !== false}
+              canRedo={!!steps.canRedo}
             />
             <AskBar
               value={noteText}
@@ -639,6 +723,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               needsModel={cloud && !hasModel}
               who={cloud ? "your AI" : "Claude"}
             />
+            <Guard name="The timeline" key={`tl-${pid}`}>
             <Timeline
               key={pid} // a different video starts with nothing selected
               spec={spec}
@@ -658,6 +743,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               onSelection={setHasSel}
               clips={clips}
             />
+            </Guard>
             {issues.length ? (
               <div className="issues">
                 {issues.map((i) => (

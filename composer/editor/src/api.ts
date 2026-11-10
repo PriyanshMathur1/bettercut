@@ -116,15 +116,19 @@ export const api = {
   projects: () => af("/api/projects").then((r) => j<ProjectRow[]>(r)),
   spec: (pid: string) =>
     af(`/api/projects/${pid}/spec`)
-      .then((r) => j<{ spec: ReelSpec; issues: string[]; media?: Record<string, string>; version?: number; author?: string; summary?: string; clips?: { name: string; start: number; seconds: number }[] }>(r))
+      .then((r) => j<{ spec: ReelSpec; issues: string[]; media?: Record<string, string>; version?: number; author?: string; summary?: string; clips?: { name: string; start: number; seconds: number }[]; canUndo?: boolean; canRedo?: boolean }>(r))
       .then((r) => (addMedia(r.media), r)),
   save: (pid: string, spec: ReelSpec) =>
     af(`/api/projects/${pid}/spec`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec) }).then((r) =>
-      j<{ ok: boolean; issues: string[] }>(r),
+      j<{ ok: boolean; issues: string[]; canUndo?: boolean; canRedo?: boolean }>(r),
     ),
   undo: (pid: string) =>
     af(`/api/projects/${pid}/undo`, { method: "POST" })
-      .then((r) => j<{ spec: ReelSpec; media?: Record<string, string> }>(r))
+      .then((r) => j<{ spec: ReelSpec; media?: Record<string, string>; canUndo?: boolean; canRedo?: boolean }>(r))
+      .then((r) => (addMedia(r.media), r)),
+  redo: (pid: string) =>
+    af(`/api/projects/${pid}/redo`, { method: "POST" })
+      .then((r) => j<{ spec: ReelSpec; media?: Record<string, string>; canUndo?: boolean; canRedo?: boolean }>(r))
       .then((r) => (addMedia(r.media), r)),
   look: (pid: string, look: string) =>
     af(`/api/projects/${pid}/look`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ look }) }).then((r) =>

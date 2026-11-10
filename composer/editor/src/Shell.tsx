@@ -241,14 +241,20 @@ export const Transport: React.FC<{
   onPrevCut: () => void;
   onNextCut: () => void;
   onUndo: () => void;
-}> = ({ t, duration, fps, playing, onToggle, onStep, onPrevCut, onNextCut, onUndo }) => (
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+}> = ({ t, duration, fps, playing, onToggle, onStep, onPrevCut, onNextCut, onUndo, onRedo, canUndo, canRedo }) => (
   <div className="s-transport">
     <span className="s-tc" title="Hours : minutes : seconds : frames">
       {timecode(t, fps)}
     </span>
     <div className="s-keys">
-      <button onClick={onUndo} title="Undo the last change" aria-label="Undo">
+      <button onClick={onUndo} disabled={!canUndo} title="Undo the last change (⌘Z)" aria-label="Undo">
         ↶
+      </button>
+      <button onClick={onRedo} disabled={!canRedo} title="Redo what you undid (⇧⌘Z)" aria-label="Redo">
+        ↷
       </button>
       <button onClick={onPrevCut} title="Go to the previous cut" aria-label="Previous cut">
         ⏮
