@@ -430,9 +430,11 @@ export const ProjectCard: React.FC<{
 export const ExportMenu: React.FC<{
   busy: boolean;
   shapes: number;
-  onRender: (quality: "high" | "draft" | "master") => void;
+  onRender: (quality: "high" | "draft" | "master", uhd?: boolean) => void;
   onFile: (kind: "srt" | "vtt" | "fcpxml") => void;
-}> = ({ busy, shapes, onRender, onFile }) => {
+  /** 4K renders are offered (the local server makes them from the full-size clips). */
+  uhd?: boolean;
+}> = ({ busy, shapes, onRender, onFile, uhd }) => {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -462,6 +464,12 @@ export const ExportMenu: React.FC<{
             <b>Render</b>
             <small>{shapes ? `Full quality, ${n}` : "Choose a video shape in the Project card first"}</small>
           </button>
+          {uhd ? (
+            <button role="menuitem" onClick={pick(() => onRender("high", true))} disabled={!shapes}>
+              <b>Render in 4K</b>
+              <small>Twice the size, from your full-size clips. Slower</small>
+            </button>
+          ) : null}
           <button role="menuitem" onClick={pick(() => onRender("draft"))}>
             <b>Quick draft</b>
             <small>Fast, lower quality, to check the cut</small>

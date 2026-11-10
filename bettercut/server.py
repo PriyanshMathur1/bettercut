@@ -365,6 +365,7 @@ async def start_render(pid: str, req: Request):
     proj = _proj(pid)
     body = await req.json() if (await req.body()) else {}
     quality = body.get("quality", "high")
+    uhd = bool(body.get("uhd")) and quality != "draft"
     aspects = shapes.aspects_for(pipeline.load(proj), body.get("aspects"))
 
     def work(job, log):
@@ -376,9 +377,9 @@ async def start_render(pid: str, req: Request):
         for n, asp in enumerate(aspects):
             spec = pipeline.load(proj)
             tag = shapes.tag(spec, asp)
-            dst = proj / "renders" / f"{pid}-v{v}{tag}{'.mov' if quality == 'master' else '.mp4'}"
+            dst = proj / "renders" / f"{pid}-v{v}{tag}{'-4k' if uhd else ''}{'.mov' if quality == 'master' else '.mp4'}"
             log(f"rendering {dst.name} ({quality})")
-            render.render(spec, proj, dst, quality=quality, log=log, aspect=asp,
+            render.render(spec, proj, dst, quality=quality, log=log, aspect=asp, uhd=uhd,
                           progress=lambda p, n=n: job.__setitem__("progress", round((n + p * 0.95) / len(aspects), 3)))
             if quality != "master":
                 render.phone_copy(dst, dst.with_name(dst.stem + "-phone.mp4"))

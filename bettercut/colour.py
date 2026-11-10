@@ -242,8 +242,10 @@ def is_current(spec: dict) -> bool:
     return bool(g and Path(g).exists() and (spec.get("grade") or {}).get("baked") == bake_key(spec))
 
 
-def bake(spec: dict, project: Path, log=print) -> dict:
-    """Write assets/graded-<key>.mp4 (+ graded matte) and point spec.source at them."""
+def bake(spec: dict, project: Path, log=print, tidy: bool = True) -> dict:
+    """Write assets/graded-<key>.mp4 (+ graded matte) and point spec.source at them.
+
+    `tidy` removes older bakes; a 4K render turns it off so the edit's own bake stays."""
     src = Path(spec["source"]["src"])
     key = bake_key(spec)
     spec = json.loads(json.dumps(spec))
@@ -291,7 +293,7 @@ def bake(spec: dict, project: Path, log=print) -> dict:
             )
         spec["source"]["gradedMatte"] = str(mout)
     g["baked"] = key
-    for old in (project / "assets").glob("graded-*"):
+    for old in (project / "assets").glob("graded-*") if tidy else ():
         if key not in old.name:
             old.unlink(missing_ok=True)
     return spec

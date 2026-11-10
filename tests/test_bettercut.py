@@ -389,7 +389,7 @@ def test_a_clip_with_no_speech_becomes_a_whole_clip_reel(tmp_path, monkeypatch):
 
     src = tmp_path / "p" / "assets" / "source.mp4"
     monkeypatch.setattr(media, "find_clips", lambda clips, newest=None: ["clip.mp4"])
-    monkeypatch.setattr(media, "assemble", lambda files, out, stabilize=False, **kw: (out.parent.mkdir(parents=True, exist_ok=True), out.write_bytes(b"x"), [])[2])
+    monkeypatch.setattr(media, "assemble", lambda files, out, stabilize=False, **kw: (out.parent.mkdir(parents=True, exist_ok=True), out.write_bytes(b"x"), {"clips": []})[2])
     monkeypatch.setattr(media, "probe", lambda p: {"duration": 13.5, "width": 1080, "height": 1920})
     monkeypatch.setattr(media, "transcribe", lambda *a, **k: [])
     monkeypatch.setattr(media, "speech_gaps", lambda p: [(0.0, 13.5)])
@@ -959,3 +959,62 @@ def test_a_review_link_shows_the_latest_render_and_takes_comments_on_a_spot(tmp_
     again = c.post("/api/projects/p/review").json()
     assert again["token"] != token and len(again["comments"]) == 1
     assert c.get("/api/review/not-a-real-token").status_code == 404
+
+
+# ---- 4K ----
+
+def test_4k_detail_is_set_by_the_weakest_clip():
+    from bettercut import hires
+
+    clips = [{"path": "a"}, {"path": "b"}]
+    # a 2160x3840 frame from a 4K vertical clip and a 1080p one
+    assert hires.sharpness(clips, 2160, 3840, {"a": (2160, 3840), "b": (2160, 3840)}) == 1.0  # clips exactly the frame's size
+    assert hires.sharpness([{"path": "a"}], 1080, 1920, {"a": (2160, 3840)}) == 2.0  # twice the edit's size
+    assert hires.sharpness(clips, 1080, 1920, {"a": (2160, 3840), "b": (1080, 1920)}) == 1.0  # the 1080p clip decides
+    assert hires.sharpness([{"path": "a"}], 1080, 1920, {"a": (3840, 2160)}) == 1.12  # landscape 4K cropped to vertical
+
+
+def test_4k_footage_is_rebuilt_from_the_clips_at_twice_the_size(tmp_path):
+    import json
+    import subprocess
+
+    import pytest
+
+    from bettercut import hires, media
+
+    clips = []
+    for i, colour in enumerate(["red", "blue"]):
+        c = tmp_path / f"c{i}.mp4"
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", f"color=c={colour}:s=640x360:d=1.5:r=30",
+                        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "1.5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(c)], check=True)
+        clips.append(c)
+    proj = tmp_path / "p"
+    (proj / "work").mkdir(parents=True)
+    (proj / "assets").mkdir()
+    info = media.assemble(clips, proj / "assets" / "source.mp4", width=320, height=180, fps=30)
+    (proj / "work" / "clips.json").write_text(json.dumps(info))
+    spec = {"source": {"src": str(proj / "assets" / "source.mp4"), "width": 320, "height": 180, "fps": 30, "duration": info["duration"]}}
+
+    logs = []
+    out = hires.ensure_master(proj, spec, log=logs.append)
+    got = media.probe(out)
+    assert (got["width"], got["height"]) == (640, 360) and abs(got["duration"] - info["duration"]) < 0.1
+    assert not any("scaled up" in l for l in logs)  # 640x360 clips are exactly twice a 320x180 edit: full detail
+    assert hires.ensure_master(proj, spec, log=logs.append) == out  # made once
+    hi = hires.spec_for_4k(spec, proj, log=logs.append)
+    assert hi["source"]["src"] == str(out) and spec["source"]["src"].endswith("source.mp4")  # the edit's own spec is untouched
+
+    clips[1].unlink()
+    with pytest.raises(RuntimeError, match="c1.mp4"):
+        hires.ensure_master(proj, {**spec, "source": {**spec["source"], "width": 200, "height": 100}})
+
+
+def test_render_versions_count_every_kind_of_render(tmp_path):
+    from bettercut import pipeline
+
+    r = tmp_path / "renders"
+    r.mkdir()
+    assert pipeline.next_version(tmp_path) == 1
+    for name in ["p-v1.mp4", "p-v1-phone.mp4", "p-v2-16x9.mp4", "p-v3-4k.mp4", "p-v4.mov", "p-v1.srt"]:
+        (r / name).write_bytes(b"")
+    assert pipeline.next_version(tmp_path) == 5

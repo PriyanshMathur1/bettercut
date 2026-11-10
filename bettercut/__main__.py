@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("render")
     r.add_argument("project")
     r.add_argument("--quality", default="high", choices=["draft", "high", "max", "master"], help="master = ProRes HQ .mov")
+    r.add_argument("--4k", dest="uhd", action="store_true", help="twice the size (4K for a vertical reel), from the full-size clips")
     r.add_argument("--aspect", default="native", help="native (the project's own shape), 9x16, 4x5, 1x1, 16x9 or 'all'")
     r.add_argument("-o", "--out")
 
@@ -117,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
 
         aspects = shapes.aspects_for(pipeline.load(_project(a.project)), list(shapes.SHAPES) if a.aspect == "all" else [a.aspect])
         for asp in aspects:
-            _render(_project(a.project), a.quality, a.out if len(aspects) == 1 else None, asp)
+            _render(_project(a.project), a.quality, a.out if len(aspects) == 1 else None, asp, uhd=a.uhd)
         return 0
     if a.cmd == "still":
         proj = _project(a.project)
@@ -179,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
-def _render(proj: Path, quality: str, out: str | None, aspect: str | None = None) -> int:
+def _render(proj: Path, quality: str, out: str | None, aspect: str | None = None, uhd: bool = False) -> int:
     from . import shape as shapes
     from .export import write_all
 
@@ -189,7 +190,7 @@ def _render(proj: Path, quality: str, out: str | None, aspect: str | None = None
     slug = proj.name
     ext = ".mov" if quality == "master" else ".mp4"
     tag = shapes.tag(spec, aspect)
-    dst = Path(out) if out else proj / "renders" / f"{slug}-v{v}{tag}{ext}"
+    dst = Path(out) if out else proj / "renders" / f"{slug}-v{v}{tag}{'-4k' if uhd else ''}{ext}"
     print(f"rendering {dst.name} ({quality})")
     shown = {-1}
 
@@ -199,7 +200,7 @@ def _render(proj: Path, quality: str, out: str | None, aspect: str | None = None
             shown.add(step)
             print(f"{step * 10}%", end=" ", flush=True)
 
-    render.render(spec, proj, dst, quality=quality, progress=tick, aspect=aspect)
+    render.render(spec, proj, dst, quality=quality, progress=tick, aspect=aspect, uhd=uhd)
     print()
     exports = write_all(pipeline.load(proj), proj / "renders", dst.stem)
     print("exports:", ", ".join(p.name for p in exports.values()))

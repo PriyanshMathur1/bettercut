@@ -163,8 +163,8 @@ export const api = {
       .then((r) => j<{ path: string; url?: string; seconds?: number }>(r))
       .then((r) => (r.url && addMedia({ [r.path]: r.url }), r));
   },
-  render: (pid: string, quality: string, aspects: string[]) =>
-    af(`/api/projects/${pid}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quality, aspects }) }).then((r) =>
+  render: (pid: string, quality: string, aspects: string[], uhd = false) =>
+    af(`/api/projects/${pid}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quality, aspects, uhd }) }).then((r) =>
       j<{ job: string }>(r),
     ),
   addClips: (pid: string, files: File[]) => {
