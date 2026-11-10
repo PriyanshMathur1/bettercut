@@ -14,6 +14,7 @@ import { LayerHandle } from "./LayerHandle";
 import { CamRow } from "./CamRow";
 import { createSaver, type SaveState } from "./saver";
 import { Guard } from "./Guard";
+import { playbackAction, SHORTCUTS, shuttle, stepFrame, typingIn } from "./keys";
 import { followPlayer, volumeToRestore } from "./preview";
 import { askNotes, BIN, binItems, cutAfter, cutBefore, fmtClock, groupOf, keepTab, railFor, shapeOf, subTabs, toggleShape, withoutSent, type BinItem, type RailIcon } from "./workspace";
 import { AskBar, ExportMenu, MediaBin, ProjectCard, Rail, Transport } from "./Shell";
@@ -103,6 +104,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [inspector, setInspector] = useState<HTMLElement | null>(null); // where the timeline draws the selection's properties
   const [hasSel, setHasSel] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1); // playback rate: negative plays backwards (J), up to 4x either way
+  const [showKeys, setShowKeys] = useState(false); // the shortcut sheet
+  const [textTool, setTextTool] = useState(false); // clicking the preview places text
+  const [draft, setDraft] = useState<{ x: number; y: number; text: string } | null>(null); // text being typed on the preview
   const [wholeReel, setWholeReel] = useState(false);
   const player = useRef<PlayerRef | null>(null);
   const [playerEl, setPlayerEl] = useState<PlayerRef | null>(null); // the mounted player, for effects that must follow it
@@ -530,6 +535,67 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   // a voiceover needs the playhead on footage, and must not start while a job is changing the reel
   const busy = job?.status === "running";
   const canVoice = tOut < totalOutDuration(placed) - 0.01;
+  /** Put the typed text on the video where it was clicked, starting at the playhead. */
+  const placeText = () => {
+    const d = draft;
+    setDraft(null);
+    setTextTool(false);
+    if (!d || !d.text.trim() || !spec) return;
+    const start = +sourceNow.toFixed(2);
+    const end = +Math.min(spec.source.duration || start + 3, start + 3).toFixed(2);
+    if (end - start < 0.2) return;
+    update((s) => ({ ...s, overlays: [...s.overlays, { kind: "text", text: d.text.trim(), x: +d.x.toFixed(3), y: +d.y.toFixed(3), start, end }] }));
+  };
+
+  // Keyboard: J K L, Space, arrows, Home/End, T for the text tool, ? for the list. Ignored while typing.
+  const keysRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keysRef.current = (e) => {
+    const el = e.target as HTMLElement | null;
+    if (typingIn(el) || !spec) return;
+    const p = player.current;
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "t" || e.key === "T")) {
+      setTextTool((on) => !on);
+      setDraft(null);
+      return e.preventDefault();
+    }
+    if (e.key === "Escape" && (textTool || showKeys)) {
+      setTextTool(false);
+      setDraft(null);
+      setShowKeys(false);
+      return;
+    }
+    const a = playbackAction(e);
+    if (!a) return;
+    // Space on a focused button presses that button; don't also toggle playback
+    if (a.do === "toggle" && el && /^(BUTTON|A|SUMMARY)$/.test(el.tagName)) return;
+    e.preventDefault();
+    if (a.do === "help") return setShowKeys((on) => !on);
+    if (!p) return;
+    const total = Math.max(1, Math.round(duration * fps));
+    if (a.do === "toggle") {
+      setSpeed(1);
+      p.toggle();
+    } else if (a.do === "shuttle") {
+      const rate = shuttle(p.isPlaying() ? speed : 0, a.key);
+      if (rate === 0) {
+        p.pause();
+        setSpeed(1);
+      } else {
+        setSpeed(rate);
+        p.play();
+      }
+    } else if (a.do === "step") {
+      p.pause();
+      p.seekTo(stepFrame(p.getCurrentFrame(), a.by, total)); // the player's own frame: a held key repeats faster than the screen redraws
+    } else if (a.do === "cut") seekOut(a.way === "prev" ? cutBefore(cuts, tOut) : cutAfter(cuts, tOut, duration));
+    else if (a.do === "edge") p.seekTo(a.way === "start" ? 0 : total - 1);
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keysRef.current(e);
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, []);
+
   const voiceover = () => {
     if (busy || !canVoice) return;
     voiceAt.current = sourceNow;
@@ -707,26 +773,78 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                     compositionWidth={spec.width || 1080}
                     compositionHeight={spec.height || 1920}
                     style={{ width: "100%", height: "100%", borderRadius: 10, overflow: "hidden" }}
+                    playbackRate={speed}
                     controls
-                    clickToPlay
-                    spaceKeyToPlayOrPause
+                    clickToPlay={!textTool}
+                    spaceKeyToPlayOrPause={false}
                     acknowledgeRemotionLicense
                     numberOfSharedAudioTags={0}
                   />
                   {handle ? <LayerHandle layer={handle.layer} at={handle.at} onMove={handle.move} /> : null}
+                  {textTool ? (
+                    <div
+                      className="text-tool"
+                      title="Click where the text should go"
+                      onPointerDown={(e) => {
+                        if (e.target !== e.currentTarget) return; // a click in the box being typed in
+                        const r = e.currentTarget.getBoundingClientRect();
+                        if (draft?.text.trim()) return placeText(); // clicking away places what was typed
+                        e.preventDefault();
+                        setDraft({ x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, text: "" });
+                      }}
+                    >
+                      {draft ? (
+                        <div className="text-draft" style={{ left: `${draft.x * 100}%`, top: `${draft.y * 100}%` }}>
+                          <textarea
+                            autoFocus
+                            rows={1}
+                            value={draft.text}
+                            placeholder="Type something"
+                            aria-label="Text to put on the video"
+                            onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                placeText();
+                              } else if (e.key === "Escape") {
+                                setDraft(null);
+                                setTextTool(false);
+                              }
+                            }}
+                          />
+                          <small>
+                            <kbd>↵</kbd> add · <kbd>⇧↵</kbd> new line · <kbd>Esc</kbd> cancel
+                          </small>
+                        </div>
+                      ) : (
+                        <span className="text-hint">Click where the text should go</span>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               </Guard>
             </div>
             <Transport
+              speed={playing ? speed : 0}
+              textTool={textTool}
+              onText={() => {
+                setTextTool((on) => !on);
+                setDraft(null);
+              }}
+              onKeys={() => setShowKeys(true)}
               t={tOut}
               duration={duration}
               fps={fps}
               playing={playing}
-              onToggle={() => player.current?.toggle()}
+              onToggle={() => {
+                setSpeed(1);
+                player.current?.toggle();
+              }}
               onStep={(n) => {
                 player.current?.pause();
-                player.current?.seekTo(Math.min(Math.max(0, frame + n), Math.max(0, Math.round(duration * fps) - 1)));
+                const p = player.current;
+                if (p) p.seekTo(stepFrame(p.getCurrentFrame(), n, Math.max(1, Math.round(duration * fps))));
               }}
               onPrevCut={() => seekOut(cutBefore(cuts, tOut))}
               onNextCut={() => seekOut(cutAfter(cuts, tOut, duration))}
@@ -902,6 +1020,40 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
         </main>
       )}
 
+      {showKeys ? (
+        <div className="modal" onClick={() => setShowKeys(false)}>
+          <div className="sheet wide keys" role="dialog" aria-label="Keyboard shortcuts" onClick={(e) => e.stopPropagation()}>
+            <h2>Keyboard shortcuts</h2>
+            <div className="keys-grid">
+              {SHORTCUTS.map((g) => (
+                <section key={g.group}>
+                  <h3>{g.group}</h3>
+                  <dl>
+                    {g.items.map((i) => (
+                      <div key={i.keys}>
+                        <dt>
+                          {i.keys.split(" / ").map((k, n) => (
+                            <React.Fragment key={k}>
+                              {n ? <span> / </span> : null}
+                              <kbd>{k}</kbd>
+                            </React.Fragment>
+                          ))}
+                        </dt>
+                        <dd>{i.does}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </div>
+            <div className="row end">
+              <button className="primary" onClick={() => setShowKeys(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {settings ? (
         <Settings
           cfg={cfg}

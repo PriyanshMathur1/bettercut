@@ -50,6 +50,10 @@ const Items: React.FC<OverlayRender & { numbered?: boolean; check?: boolean }> =
 );
 
 const RENDERERS: Record<OverlayKind, (p: OverlayRender) => React.ReactNode> = {
+  // plain words in the brand's heading font: the text you type on the preview
+  text: ({ o, brand, k }) => (
+    <div style={{ fontFamily: font(brand.headingFont), fontWeight: 800, fontSize: 84 * k, lineHeight: 1.12, color: o.color || "#FFF", textAlign: "center", whiteSpace: "pre-wrap", maxWidth: 900 * k, textShadow: "0 4px 18px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.6)" }}>{o.text}</div>
+  ),
   emoji: ({ o, t, k }) => <div style={{ fontSize: 180 * k * (1 + 0.05 * Math.sin(t * 8)) }}>{o.emoji || o.text || "🔥"}</div>,
   sticker: ({ o, brand, k }) => (
     <div style={{ background: o.color || brand.accent, color: brand.ink, fontFamily: font("Lilita One"), fontSize: 70 * k, padding: `${14 * k}px ${34 * k}px`, borderRadius: 22 * k, border: `${6 * k}px solid #FFF`, boxShadow: "6px 6px 0 rgba(0,0,0,.85)", whiteSpace: "nowrap" }}>
@@ -369,6 +373,7 @@ const RENDERERS: Record<OverlayKind, (p: OverlayRender) => React.ReactNode> = {
 export const OVERLAY_KINDS = Object.keys(RENDERERS) as OverlayKind[];
 
 const DEFAULT_ENTER: Partial<Record<OverlayKind, string>> = {
+  text: "none", // plain text is there the moment you place it; add a move with the Animate presets
   donut: "fade",
   bars: "fade",
   metrics: "fade",

@@ -244,10 +244,26 @@ export const Transport: React.FC<{
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-}> = ({ t, duration, fps, playing, onToggle, onStep, onPrevCut, onNextCut, onUndo, onRedo, canUndo, canRedo }) => (
+  /** Playback rate now: 0 paused, negative backwards. Shown when it isn't normal speed. */
+  speed: number;
+  textTool: boolean;
+  onText: () => void;
+  onKeys: () => void;
+}> = ({ t, duration, fps, playing, onToggle, onStep, onPrevCut, onNextCut, onUndo, onRedo, canUndo, canRedo, speed, textTool, onText, onKeys }) => (
   <div className="s-transport">
-    <span className="s-tc" title="Hours : minutes : seconds : frames">
-      {timecode(t, fps)}
+    <span className="s-tc-wrap">
+      <span className="s-tc" title="Hours : minutes : seconds : frames">
+        {timecode(t, fps)}
+      </span>
+      {speed !== 0 && speed !== 1 ? (
+        <em className="s-rate" title="Playback speed (J and L change it, K stops)">
+          {speed < 0 ? "◀ " : ""}
+          {Math.abs(speed)}×
+        </em>
+      ) : null}
+      <button className={`s-tool ${textTool ? "on" : ""}`} aria-pressed={textTool} onClick={onText} title="Text tool: click the preview and type (T)">
+        T Text
+      </button>
     </span>
     <div className="s-keys">
       <button onClick={onUndo} disabled={!canUndo} title="Undo the last change (⌘Z)" aria-label="Undo">
@@ -272,8 +288,13 @@ export const Transport: React.FC<{
         ⏭
       </button>
     </div>
-    <span className="s-tc dim" title="Length of the video">
-      {timecode(duration, fps)} · {Math.round(fps)} fps
+    <span className="s-tc-wrap end">
+      <span className="s-tc dim" title="Length of the video">
+        {timecode(duration, fps)} · {Math.round(fps)} fps
+      </span>
+      <button className="s-tool" onClick={onKeys} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+        ?
+      </button>
     </span>
   </div>
 );
