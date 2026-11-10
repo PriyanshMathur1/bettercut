@@ -7,7 +7,7 @@ import { effectsByFamily } from "../../src/reel/motion/effects";
 
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
-import { layerBase, layerVolume, moveTrack, tracksOf, type Layer } from "../../src/reel/layers";
+import { layerBase, layerVolume, moveTrack, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
 import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
 const TRANSITIONS = effectsByFamily("transition");
@@ -137,8 +137,10 @@ export const Timeline: React.FC<{
   onVoiceover: () => void;
   /** Add a video, image or audio file as a layer on its own track, starting at the playhead. */
   onAddMedia: (file: File) => void;
+  /** Tells the editor which layer is selected, so it can be dragged in the preview. */
+  onSelectLayer?: (index: number | null) => void;
   busy?: boolean;
-}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, busy }) => {
+}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, onSelectLayer, busy }) => {
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
@@ -224,6 +226,10 @@ export const Timeline: React.FC<{
     setSel(null);
   };
 
+  useEffect(() => {
+    onSelectLayer?.(extra?.kind === "layers" ? extra.i : null);
+  }, [extra?.kind, extra?.i]);
+
   // keyboard: S splits at the playhead, Delete removes the selected shot, Esc clears the selection
   const keys = useRef({ split, remove });
   keys.current = { split, remove };
@@ -306,7 +312,15 @@ export const Timeline: React.FC<{
       if (Math.abs(ev.clientX - x0) < 3) return; // a click, not a drag
       const out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
       const at = toSource(placed, out);
-      update((s) => ({ ...s, [kind]: ((s[kind] || []) as { start: number; end: number }[]).map((x, j) => (j === i ? placeSpan(x, how, at, kind === "voiceovers" ? Infinity : s.source.duration) : x)) }));
+      update((s) => ({
+        ...s,
+        [kind]: ((s[kind] || []) as { start: number; end: number }[]).map((x, j) => {
+          if (j !== i) return x;
+          // trimming a layer's start skips into its media; it doesn't restart it
+          if (kind === "layers" && how === "start") return trimLayerStart(x as Layer, at);
+          return placeSpan(x, how, at, kind === "voiceovers" ? Infinity : s.source.duration);
+        }),
+      }));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);

@@ -101,3 +101,39 @@ export function newLayer(layers: Layer[] | undefined, src: string, kind: LayerKi
   const len = kind === "image" ? 3 : Math.max(0.5, seconds || 3);
   return { kind, src, track: topTrack(layers), start: Math.round(at * 1000) / 1000, end: Math.round((at + len) * 1000) / 1000 };
 }
+
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/**
+ * Move a layer's start to `start` (SOURCE seconds) the way trimming works in an editor: the media keeps
+ * its place in time, so trimming later skips into the file and trimming earlier reveals what came before.
+ * It can't be trimmed earlier than the file's own beginning. Images have no beginning, so only the time moves.
+ */
+export function trimLayerStart<T extends Layer>(layer: T, start: number, minLength = 0.2): T {
+  const from = layer.from ?? 0;
+  let to = Math.min(start, layer.end - minLength);
+  if (layer.kind !== "image") to = Math.max(to, layer.start - from); // the file starts here
+  to = Math.max(0, to);
+  const next = { ...layer, start: r3(to) };
+  if (layer.kind !== "image") {
+    const f = r3(Math.max(0, from + (to - layer.start)));
+    if (f > 0) next.from = f;
+    else delete next.from;
+  }
+  return next;
+}
+
+/**
+ * Put a layer's centre at (x, y) for the moment `at` seconds into its life. A layer whose position is
+ * animated gets a keyframe there (or the nearby one is updated); otherwise its resting position changes.
+ */
+export function placeLayer<T extends Layer>(layer: T, at: number, x: number, y: number): T {
+  const cx = r3(Math.min(1.5, Math.max(-0.5, x)));
+  const cy = r3(Math.min(1.5, Math.max(-0.5, y)));
+  const keys = layer.keys || [];
+  const animated = keys.some((k) => typeof k.x === "number" || typeof k.y === "number");
+  if (!animated) return { ...layer, x: cx, y: cy };
+  const i = keys.findIndex((k) => Math.abs(k.at - at) <= 0.12);
+  const next = i >= 0 ? keys.map((k, j) => (j === i ? { ...k, x: cx, y: cy } : k)) : [...keys, { at: r3(Math.max(0, at)), x: cx, y: cy }].sort((a, b) => a.at - b.at);
+  return { ...layer, keys: next };
+}
