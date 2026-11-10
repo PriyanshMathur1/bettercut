@@ -6,6 +6,7 @@
 // fractions of the frame, so one layer looks the same in every aspect ratio.
 
 import type { ClipEffect } from "./clipfx";
+import type { Mask } from "./masks";
 import { setKey, type Key } from "./keyframes.ts"; // explicit extension: this file also runs under `node --test`
 
 export type LayerKind = "video" | "image" | "audio";
@@ -37,6 +38,8 @@ export interface Layer {
   keys?: Key[];
   /** Effects stacked on this layer, applied in order. */
   effects?: ClipEffect[];
+  /** Show only part of the layer: a shape inside its box. */
+  mask?: Mask;
 }
 
 const IMAGE = /\.(png|jpe?g|webp|gif|avif|svg|bmp)$/i;

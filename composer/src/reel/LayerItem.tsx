@@ -4,6 +4,7 @@ import { resolveAsset } from "./asset";
 import { sampleKeys } from "./keyframes";
 import { layerBase, layerVolume, playable, type Layer } from "./layers";
 import { filterFor } from "./clipfx";
+import { maskStyle } from "./masks";
 import { kOf } from "./brand";
 import { FxDefs, FxOverlays } from "./EffectLayers";
 
@@ -41,7 +42,7 @@ export const LayerItem: React.FC<{ layer: Layer; start: number; end: number; uid
     opacity: Math.min(1, Math.max(0, v.opacity)),
   };
   // rounded corners clip the picture, and the grain and vignette, but not the effects around it
-  const clip: React.CSSProperties = { position: "relative", borderRadius: Math.min(0.5, Math.max(0, layer.radius ?? 0)) * w, overflow: "hidden" };
+  const clip: React.CSSProperties = { position: "relative", borderRadius: Math.min(0.5, Math.max(0, layer.radius ?? 0)) * w, overflow: "hidden", ...maskStyle(layer.mask) };
   // the layer's effect stack: filters on the picture, grain and vignette inside its box
   const k = kOf(width, height); // the same scale captions and overlays use, so effects match in every aspect ratio
   const fx = filterFor(layer.effects, k, uid);
