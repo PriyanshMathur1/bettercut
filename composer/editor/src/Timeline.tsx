@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimateRow } from "./AnimateRow";
+import { KeyGraph } from "./KeyGraph";
+import { MaskRow } from "./MaskRow";
 import { CLIP_DRAG } from "./workspace";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
@@ -34,7 +36,7 @@ const SHOT_FIELDS: Field[] = [
  * A number field you can type in freely. While it has focus it shows what you typed, even when that is
  * empty or half a number ("0."); a value is only sent on when it is a real number, kept inside min..max.
  */
-const NumField: React.FC<{ value: number; onChange: (v: number) => void; step: number; min?: number; max?: number; disabled?: boolean }> = ({ value, onChange, step, min, max, disabled }) => {
+export const NumField: React.FC<{ value: number; onChange: (v: number) => void; step: number; min?: number; max?: number; disabled?: boolean }> = ({ value, onChange, step, min, max, disabled }) => {
   const [text, setText] = useState<string | null>(null); // what is being typed; null = show the value
   return (
     <input
@@ -714,7 +716,16 @@ export const Timeline: React.FC<{
             onChange={(keys) => setLayer({ keys })}
             onGo={(at) => onSeek(selLayer.r.start + at)}
           />
+          <KeyGraph
+            keys={selLayer.l.keys}
+            base={layerBase(selLayer.l)}
+            order={LAYER_FIELDS.map((f) => f.id)}
+            labels={Object.fromEntries(LAYER_FIELDS.map((f) => [f.id, f.label]))}
+            range={[0, selLayer.r.end - selLayer.r.start]}
+            onChange={(keys) => setLayer({ keys })}
+          />
           <FxRow what="layer" effects={selLayer.l.effects} onChange={(effects) => setLayer({ effects })} />
+          <MaskRow mask={selLayer.l.mask} onChange={(mask) => setLayer({ mask })} />
         </>
       ) : selOv ? (
         <>
@@ -737,6 +748,14 @@ export const Timeline: React.FC<{
             }
           />
           <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
+          <KeyGraph
+            keys={selOv.o.keys}
+            base={overlayBase(selOv.o)}
+            order={OVERLAY_FIELDS.map((f) => f.id)}
+            labels={Object.fromEntries(OVERLAY_FIELDS.map((f) => [f.id, f.label]))}
+            range={[0, selOv.r.end - selOv.r.start]}
+            onChange={(keys) => setOverlayKeys(keys)}
+          />
         </>
       ) : selected ? (
         <KeyRow
@@ -752,6 +771,17 @@ export const Timeline: React.FC<{
           }}
         />
       ) : null;
+  // the shot's keyframes run in source seconds, across the shot's own stretch of footage
+  const shotGraph = selected ? (
+    <KeyGraph
+      keys={selected.keys}
+      base={{ zoom: selected.zoom ?? 1, cx: selected.cx ?? 0.5, cy: selected.cy ?? 0.4 }}
+      order={SHOT_FIELDS.map((f) => f.id)}
+      labels={Object.fromEntries(SHOT_FIELDS.map((f) => [f.id, f.label]))}
+      range={[selected.start, selected.end]}
+      onChange={setShotKeys}
+    />
+  ) : null;
   const fxControls =
     !selLayer && !selOv && selected && sel !== null ? (
       <FxRow what="shot" effects={selected.effects} reel={spec.grade} onChange={(effects) => update((s) => ({ ...s, segments: patchShot(s.segments, sel, { effects }) }))} />
@@ -780,6 +810,7 @@ export const Timeline: React.FC<{
               <h3>{selTitle}</h3>
               <div className="insp-rows">{selControls}</div>
               {keyControls}
+              {!selLayer && !selOv ? shotGraph : null}
               {fxControls}
             </div>,
             inspector,
