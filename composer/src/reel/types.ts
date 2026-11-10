@@ -220,6 +220,8 @@ export interface AudioSettings {
   loudness?: number;
   /** Music beat times in output seconds (filled by the pipeline). */
   beats?: number[];
+  /** The music file `beats` were found in (written by the pipeline; a different file means stale beats). */
+  beatsFor?: string;
   sfxEvents?: { at: number; sound: string; volume?: number }[];
 }
 

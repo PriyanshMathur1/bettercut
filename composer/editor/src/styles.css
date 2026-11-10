@@ -120,6 +120,7 @@ details.item summary { cursor: pointer; font-size: 13px; display: flex; justify-
 .tl-lane { position: relative; height: 78px; min-width: 100%; cursor: pointer; touch-action: none; }
 .tl-ruler { position: absolute; top: 0; left: 0; right: 0; height: 16px; border-bottom: 1px solid var(--line); }
 .tl-ruler span { position: absolute; top: 2px; padding-left: 4px; font-size: 10px; color: var(--muted); border-left: 1px solid var(--line); height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-ruler em { position: absolute; bottom: 0; width: 1px; height: 6px; background: var(--accent); opacity: .8; }
 .tl-track { position: absolute; left: 0; right: 0; }
 .tl-track.shots { top: 22px; height: 28px; }
 .tl-track.extras { top: 55px; height: 18px; }

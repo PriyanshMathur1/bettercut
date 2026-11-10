@@ -162,3 +162,8 @@ export function placeSpan<T extends { start: number; end: number }>(item: T, how
   if (how === "start") return { ...item, start: round(Math.min(Math.max(0, t), item.end - MIN_SPAN)) };
   return { ...item, end: round(Math.max(Math.min(duration, t), item.start + MIN_SPAN)) };
 }
+
+/** Cut the shots at each of these source times (splits too close to an edge are skipped). */
+export function splitMany(segments: ReelSegment[], times: number[]): ReelSegment[] {
+  return [...times].sort((a, b) => a - b).reduce((list, t) => splitAt(list, t), [...segments]);
+}

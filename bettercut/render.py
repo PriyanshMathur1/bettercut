@@ -127,11 +127,18 @@ def prepare(spec: dict, project: Path, log=print) -> dict:
     from . import colour, pipeline
 
     a = spec.get("audio") or {}
-    if a.get("music") and (spec.get("motion") or {}).get("beatPulse") and not a.get("beats") and Path(a["music"]).exists():
-        from .audio import beats
+    if a.get("music") and a.get("beatsFor") != a["music"] and Path(a["music"]).exists():
+        # beats drive the timeline's beat markers and snapping as well as the beat pulse, so find them
+        # whenever the music changes
+        from . import timeline
+        from .audio import beats, duration, tile_beats
 
-        spec = {**spec, "audio": {**a, "beats": beats(Path(a["music"]), max_seconds=600)}}
-        log(f"music: {len(spec['audio']['beats'])} beats found")
+        found = tile_beats(beats(Path(a["music"]), max_seconds=600), duration(Path(a["music"])), timeline.total_duration(spec))
+        spec = {**spec, "audio": {**a, "beats": found, "beatsFor": a["music"]}}
+        log(f"music: {len(found)} beats found")
+        pipeline.save(project, spec)
+    elif not a.get("music") and (a.get("beats") or a.get("beatsFor")):
+        spec = {**spec, "audio": {k: v for k, v in a.items() if k not in ("beats", "beatsFor")}}
         pipeline.save(project, spec)
     from . import reverse
 
