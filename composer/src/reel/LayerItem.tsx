@@ -3,13 +3,15 @@ import { AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, useCurrentFrame, us
 import { resolveAsset } from "./asset";
 import { sampleKeys } from "./keyframes";
 import { layerBase, layerVolume, playable, type Layer } from "./layers";
+import { filterFor } from "./clipfx";
+import { FxDefs, FxOverlays } from "./EffectLayers";
 
 /**
  * One media layer on the output timeline. `start`/`end` are OUTPUT seconds.
  * Pictures are sized as a fraction of the frame width and placed by their centre, so a layer looks the
  * same in every aspect ratio. Keyframes move, resize, turn and fade it over its life.
  */
-export const LayerItem: React.FC<{ layer: Layer; start: number; end: number }> = ({ layer, start, end }) => {
+export const LayerItem: React.FC<{ layer: Layer; start: number; end: number; uid: string }> = ({ layer, start, end, uid }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const from = Math.round(start * fps);
@@ -39,12 +41,19 @@ export const LayerItem: React.FC<{ layer: Layer; start: number; end: number }> =
     borderRadius: Math.min(0.5, Math.max(0, layer.radius ?? 0)) * w,
     overflow: "hidden",
   };
+  // the layer's effect stack: filters on the picture, grain and vignette inside its box
+  const k = width / 1080;
+  const fx = filterFor(layer.effects, k, uid);
   const media: React.CSSProperties = { display: "block", width: "100%", height: "auto" };
   return (
     <Sequence from={from} durationInFrames={dur} layout="none">
       <AbsoluteFill style={{ pointerEvents: "none" }}>
+        <FxDefs effects={layer.effects} k={k} uid={uid} />
         <div style={box}>
-          {layer.kind === "image" ? <Img src={src} style={media} /> : <OffthreadVideo src={src} trimBefore={trim} muted={volume === 0} volume={volume} style={media} />}
+          <div style={fx ? { filter: fx } : undefined}>
+            {layer.kind === "image" ? <Img src={src} style={media} /> : <OffthreadVideo src={src} trimBefore={trim} muted={volume === 0} volume={volume} style={media} />}
+          </div>
+          <FxOverlays effects={layer.effects} uid={uid} />
         </div>
       </AbsoluteFill>
     </Sequence>

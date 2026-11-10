@@ -24,6 +24,8 @@ import { TranslationLine } from "./captions/TranslationLine";
 import { translationAt } from "./translate";
 import { LayerItem } from "./LayerItem";
 import { drawOrder, layerVolume, playable } from "./layers";
+import { filterFor } from "./clipfx";
+import { FxDefs, FxOverlays } from "./EffectLayers";
 import { sampleKeys } from "./keyframes";
 import { FootageTrack, Media, type Box } from "./footage";
 import { GradeOverlay, gradeFilter, primaryApprox } from "./grade";
@@ -192,7 +194,9 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   const gradeS = spec.grade || { preset: "none", vignette: 0, grain: 0 };
   // before the ffmpeg bake exists, preview manual colour controls with a CSS approximation
   const approx = spec.source.graded ? "" : primaryApprox(gradeS);
-  const gFilter = [approx, gradeFilter(gradeS), layout.footageFilter, fx.filter].filter(Boolean).join(" ");
+  // the effect stack of the shot on screen, after the grade
+  const shotFx = t < body ? seg?.effects : undefined; // not over the end card
+  const gFilter = [approx, gradeFilter(gradeS), layout.footageFilter, fx.filter, filterFor(shotFx, W / 1080, "shot")].filter(Boolean).join(" ");
 
   const inBody = t < body;
   const showMatte = hasMatte && (layout.matteOnly || layout.colourPop || layout.breakoutAbove !== undefined || spec.captions?.behindHead || (activeBroll?.b.mode === "behind") || spec.format?.id === "magazine");
@@ -380,6 +384,12 @@ export const Reel: React.FC<ReelProps> = (spec) => {
         : null}
 
       <GradeOverlay grade={spec.grade || { preset: "none", vignette: 0, grain: 0 }} />
+      <FxDefs effects={shotFx} k={W / 1080} uid="shot" />
+      {shotFx ? (
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
+          <FxOverlays effects={shotFx} uid="shot" />
+        </AbsoluteFill>
+      ) : null}
 
       {/* b-roll cutaways */}
       {inBody && activeBroll && (activeBroll.b.mode === "full" || activeBroll.b.mode === "pip" || activeBroll.b.mode === "card") ? (
@@ -407,7 +417,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
       ) : null}
 
       {layers.map(({ l, r }, i) => (
-        <LayerItem key={`layer${i}-${l.src}`} layer={l} start={r.start} end={r.end} />
+        <LayerItem key={`layer${i}-${l.src}`} layer={l} start={r.start} end={r.end} uid={`l${i}`} />
       ))}
       {overlays.map(({ o, r, itemTimes }, i) => (
         <OverlayItem key={o.id || i} o={o} brand={brand} start={r.start} end={r.end} itemTimes={itemTimes} />

@@ -8,6 +8,7 @@ import { effectsByFamily } from "../../src/reel/motion/effects";
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
 import { layerBase, layerVolume, moveTrack, playable, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
+import { addFx, amountOf, CLIP_FX, DUOTONE_DEFAULT, FX_MAP, removeFx, setFx, type ClipEffect } from "../../src/reel/clipfx";
 import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
 const TRANSITIONS = effectsByFamily("transition");
@@ -50,6 +51,52 @@ const NumField: React.FC<{ value: number; onChange: (v: number) => void; step: n
         onChange(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v)));
       }}
     />
+  );
+};
+
+/** The effect stack of the selected shot or layer: add an effect, set its strength, remove it. Applied left to right. */
+const FxRow: React.FC<{ what: string; effects: ClipEffect[] | undefined; onChange: (effects: ClipEffect[] | undefined) => void }> = ({ what, effects, onChange }) => {
+  const list = effects || [];
+  const set = (next: ClipEffect[]) => onChange(next.length ? next : undefined);
+  return (
+    <div className="tl-keys">
+      <span className="tl-info">Effects</span>
+      {list.map((e, i) => {
+        const def = FX_MAP[e.type];
+        if (!def) return null;
+        return (
+          <span className="fx-chip" key={`${e.type}-${i}`}>
+            <label title={`How strong ${def.name.toLowerCase()} is, from 0 to 1`}>
+              {def.name}
+              <NumField step={0.05} min={0} max={1} value={amountOf(e)} onChange={(v) => set(setFx(list, i, { amount: v }))} />
+            </label>
+            {e.type === "duotone" ? (
+              <>
+                <input type="color" title="Colour for the dark parts" aria-label="Duotone dark colour" value={e.color || DUOTONE_DEFAULT[0]} onChange={(ev) => set(setFx(list, i, { color: ev.target.value.toUpperCase() }))} />
+                <input type="color" title="Colour for the bright parts" aria-label="Duotone bright colour" value={e.color2 || DUOTONE_DEFAULT[1]} onChange={(ev) => set(setFx(list, i, { color2: ev.target.value.toUpperCase() }))} />
+              </>
+            ) : null}
+            <button className="x" onClick={() => set(removeFx(list, i))} title={`Remove ${def.name.toLowerCase()}`} aria-label={`Remove ${def.name}`}>
+              ×
+            </button>
+          </span>
+        );
+      })}
+      <select
+        value=""
+        aria-label={`Add an effect to this ${what}`}
+        onChange={(e) => {
+          if (e.target.value) set(addFx(list, e.target.value));
+        }}
+      >
+        <option value="">{list.length ? "Add another…" : `Add an effect to this ${what}…`}</option>
+        {CLIP_FX.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.name}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 };
 
@@ -640,6 +687,7 @@ export const Timeline: React.FC<{
             onChange={(keys) => setLayer({ keys })}
             onGo={(at) => onSeek(selLayer.r.start + at)}
           />
+          <FxRow what="layer" effects={selLayer.l.effects} onChange={(effects) => setLayer({ effects })} />
         </>
       ) : selOv ? (
         <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
@@ -656,6 +704,9 @@ export const Timeline: React.FC<{
             if (o !== null) onSeek(o);
           }}
         />
+      ) : null}
+      {!selLayer && !selOv && selected && sel !== null ? (
+        <FxRow what="shot" effects={selected.effects} onChange={(effects) => update((s) => ({ ...s, segments: patchShot(s.segments, sel, { effects }) }))} />
       ) : null}
       <div className="tl-scroll">
         <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%`, height: laneHeight }} onPointerDown={scrub}>
