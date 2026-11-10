@@ -1,0 +1,26 @@
+{
+  "id": "magazine",
+  "name": "Magazine Cover",
+  "description": "Masthead behind your head, editorial captions (best with cutout).",
+  "patch": {
+    "format": {
+      "id": "magazine",
+      "headline": "$name"
+    },
+    "captions": {
+      "style": "editorial-serif",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "off",
+      "cutTransition": "flash-white",
+      "camera": "slow-push"
+    },
+    "grade": {
+      "preset": "film",
+      "vignette": 0.3,
+      "grain": 0
+    }
+  }
+}

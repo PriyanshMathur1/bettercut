@@ -1,0 +1,26 @@
+{
+  "id": "tier-list",
+  "name": "Tier List",
+  "description": "Board on top for lists and rankings, you below.",
+  "patch": {
+    "format": {
+      "id": "panel-top",
+      "headline": "$hook"
+    },
+    "captions": {
+      "style": "box-black-bar",
+      "position": "bottom",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "off",
+      "cutTransition": "none",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0,
+      "grain": 0
+    }
+  }
+}

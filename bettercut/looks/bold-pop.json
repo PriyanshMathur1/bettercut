@@ -1,0 +1,37 @@
+{
+  "id": "bold-pop",
+  "name": "Bold Pop",
+  "description": "High-energy captions word by word, punch-ins on every other cut.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "bold-pop",
+      "position": "lower",
+      "wordsPerPage": 3,
+      "behindHead": false
+    },
+    "motion": {
+      "autoZoom": "alternate",
+      "cutTransition": "punch-in",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "punchy",
+      "vignette": 0.25,
+      "grain": 0
+    },
+    "hook": {
+      "style": "slam",
+      "duration": 2.2
+    },
+    "endCard": {
+      "enabled": true,
+      "style": "follow",
+      "text": "Follow for more",
+      "duration": 2.5
+    },
+    "progressBar": true
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "editorial-dark",
+  "name": "Editorial Dark",
+  "description": "Dark studio-interview grade, tracked caps and big serif words, slow push-ins.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "editorial-quiet",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "alternate",
+      "cutTransition": "none",
+      "camera": "slow-push"
+    },
+    "grade": {
+      "preset": "editorial-dark",
+      "vignette": 0.5,
+      "grain": 0
+    },
+    "hook": {
+      "style": "serif-elegant",
+      "duration": 2.6
+    }
+  }
+}

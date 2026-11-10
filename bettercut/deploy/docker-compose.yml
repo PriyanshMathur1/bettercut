@@ -1,0 +1,26 @@
+# BetterCut Cloud on one server. From this folder:  docker compose up -d --build
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: bettercut/deploy/Dockerfile
+    env_file: .env
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    shm_size: 1gb   # headless Chrome needs more than Docker's 64 MB default
+
+  caddy:            # HTTPS with an automatic, free certificate
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    environment:
+      SITE: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [app]
+    restart: unless-stopped
+
+volumes:
+  data:
+  caddy:

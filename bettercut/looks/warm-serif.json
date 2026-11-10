@@ -1,0 +1,29 @@
+{
+  "id": "warm-serif",
+  "name": "Warm Serif",
+  "description": "Warm grade, calm lowercase captions with a serif italic punch word.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "editorial-mix",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "off",
+      "cutTransition": "blur-cross",
+      "camera": "slow-push"
+    },
+    "grade": {
+      "preset": "warm",
+      "vignette": 0.35,
+      "grain": 0
+    },
+    "hook": {
+      "style": "serif-elegant",
+      "duration": 2.4
+    }
+  }
+}

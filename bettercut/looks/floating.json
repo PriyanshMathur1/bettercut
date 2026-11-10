@@ -1,0 +1,29 @@
+{
+  "id": "floating",
+  "name": "Floating Frame",
+  "description": "You in a floating window over a blurred copy of the shot.",
+  "patch": {
+    "format": {
+      "id": "zoom-frame"
+    },
+    "captions": {
+      "style": "box-glass",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "subtle",
+      "cutTransition": "zoom-blur",
+      "camera": "breathe"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0.2,
+      "grain": 0
+    },
+    "hook": {
+      "style": "split-headline",
+      "duration": 2.2
+    }
+  }
+}

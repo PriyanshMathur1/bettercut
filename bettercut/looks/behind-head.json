@@ -1,0 +1,36 @@
+{
+  "id": "behind-head",
+  "name": "Behind The Head",
+  "description": "Kinetic words, the big ones tucked behind your head (needs cutout).",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "kinetic-lower",
+      "position": "lower",
+      "wordsPerPage": 3,
+      "behindHead": true
+    },
+    "motion": {
+      "autoZoom": "subtle",
+      "cutTransition": "punch-in",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0.3,
+      "grain": 0
+    },
+    "hook": {
+      "style": "stacked",
+      "duration": 2.0
+    },
+    "endCard": {
+      "enabled": true,
+      "style": "minimal-handle",
+      "text": "see you tomorrow",
+      "duration": 2.0
+    }
+  }
+}

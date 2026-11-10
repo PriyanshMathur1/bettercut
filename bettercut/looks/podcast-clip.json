@@ -1,0 +1,30 @@
+{
+  "id": "podcast-clip",
+  "name": "Podcast Clip",
+  "description": "Horizontal footage fitted over a blurred copy, big karaoke captions.",
+  "patch": {
+    "format": {
+      "id": "blur-fit"
+    },
+    "captions": {
+      "style": "karaoke-green",
+      "position": "lower",
+      "wordsPerPage": 3
+    },
+    "motion": {
+      "autoZoom": "subtle",
+      "cutTransition": "none",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0.2,
+      "grain": 0
+    },
+    "hook": {
+      "style": "label",
+      "duration": 2.6
+    },
+    "progressBar": true
+  }
+}

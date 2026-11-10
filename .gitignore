@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+composer/editor/dist/
+composer/out/
+composer/public/reel-sfx/
+bettercut/luts/*.cube
+bettercut/deploy/.env
+.env
+.DS_Store

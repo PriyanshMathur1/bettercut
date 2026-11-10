@@ -1,0 +1,35 @@
+{
+  "id": "box-highlight",
+  "name": "Box Highlight",
+  "description": "Uppercase captions, active word in a brand-colour box, emoji on key words.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "box-accent",
+      "position": "lower",
+      "wordsPerPage": 3
+    },
+    "motion": {
+      "autoZoom": "punchy",
+      "cutTransition": "flash-white",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "punchy",
+      "vignette": 0.3,
+      "grain": 0
+    },
+    "hook": {
+      "style": "stamp",
+      "duration": 2.0
+    },
+    "endCard": {
+      "enabled": true,
+      "style": "comment-keyword",
+      "text": "GUIDE",
+      "duration": 2.5
+    }
+  }
+}

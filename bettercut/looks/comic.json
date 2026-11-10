@@ -1,0 +1,29 @@
+{
+  "id": "comic",
+  "name": "Comic",
+  "description": "Playful comic-book captions, bouncy stickers and whips.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "fun-comic",
+      "position": "lower",
+      "wordsPerPage": 3
+    },
+    "motion": {
+      "autoZoom": "punchy",
+      "cutTransition": "whip-right",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "punchy",
+      "vignette": 0.15,
+      "grain": 0
+    },
+    "hook": {
+      "style": "question",
+      "duration": 2.2
+    }
+  }
+}

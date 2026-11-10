@@ -1,0 +1,29 @@
+{
+  "id": "retro-vhs",
+  "name": "Retro VHS",
+  "description": "Vintage grade, VHS glitches, mono captions.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "retro-vhs",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "subtle",
+      "cutTransition": "vhs",
+      "camera": "handheld"
+    },
+    "grade": {
+      "preset": "vintage",
+      "vignette": 0.45,
+      "grain": 0.35
+    },
+    "hook": {
+      "style": "typewriter",
+      "duration": 2.4
+    }
+  }
+}

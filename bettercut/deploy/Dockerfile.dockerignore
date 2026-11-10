@@ -1,0 +1,11 @@
+# Keep the build context to what the image needs
+*
+!requirements.txt
+!bettercut/
+!composer/
+bettercut/luts/
+bettercut/deploy/.env
+**/__pycache__/
+**/node_modules/
+composer/editor/dist/
+composer/out/

@@ -1,0 +1,25 @@
+{
+  "id": "clean-minimal",
+  "name": "Clean Minimal",
+  "description": "Quiet subtitles, natural colour, nothing in the way.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "minimal-clean",
+      "position": "lower",
+      "wordsPerPage": 5
+    },
+    "motion": {
+      "autoZoom": "subtle",
+      "cutTransition": "none",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0.1,
+      "grain": 0
+    }
+  }
+}

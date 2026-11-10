@@ -1,0 +1,29 @@
+{
+  "id": "colour-pop",
+  "name": "Colour Pop",
+  "description": "Room in black and white, you in colour over a brand disc (needs cutout).",
+  "patch": {
+    "format": {
+      "id": "colour-pop"
+    },
+    "captions": {
+      "style": "bold-pop",
+      "position": "lower",
+      "wordsPerPage": 3
+    },
+    "motion": {
+      "autoZoom": "alternate",
+      "cutTransition": "punch-in",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0.2,
+      "grain": 0
+    },
+    "hook": {
+      "style": "slam",
+      "duration": 2.0
+    }
+  }
+}

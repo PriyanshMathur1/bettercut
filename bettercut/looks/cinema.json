@@ -1,0 +1,26 @@
+{
+  "id": "cinema",
+  "name": "Cinema",
+  "description": "Letterboxed, film grade, elegant serif headline.",
+  "patch": {
+    "format": {
+      "id": "cinema",
+      "headline": "$hook"
+    },
+    "captions": {
+      "style": "minimal-subtitle",
+      "position": "lower",
+      "wordsPerPage": 6
+    },
+    "motion": {
+      "autoZoom": "off",
+      "cutTransition": "flash-black",
+      "camera": "handheld"
+    },
+    "grade": {
+      "preset": "teal-orange",
+      "vignette": 0.4,
+      "grain": 0.15
+    }
+  }
+}

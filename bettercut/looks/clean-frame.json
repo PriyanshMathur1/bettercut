@@ -1,0 +1,26 @@
+{
+  "id": "clean-frame",
+  "name": "Clean Frame",
+  "description": "You in a rounded window on your brand colour, headline on top.",
+  "patch": {
+    "format": {
+      "id": "white-frame",
+      "headline": "$hook"
+    },
+    "captions": {
+      "style": "box-pill",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "subtle",
+      "cutTransition": "none",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "clean",
+      "vignette": 0,
+      "grain": 0
+    }
+  }
+}

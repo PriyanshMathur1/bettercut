@@ -1,0 +1,17 @@
+# BetterCut: pinned to the versions the test suite runs on
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.32
+SQLAlchemy==2.0.57
+psycopg[binary]==3.3.8
+boto3==1.43.127
+cryptography==50.0.2
+PyJWT[crypto]==2.15.1
+jsonpatch==1.45
+litellm==1.108.4
+numpy==2.2.6
+pillow==12.3.0
+opencv-python-headless==5.0.0.93
+librosa==0.11.0
+faster-whisper==1.2.1
+whisperx==3.8.6

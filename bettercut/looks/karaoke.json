@@ -1,0 +1,30 @@
+{
+  "id": "karaoke",
+  "name": "Karaoke",
+  "description": "Bold caps with a colour sweep that follows your voice.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "karaoke-fill",
+      "position": "lower",
+      "wordsPerPage": 4
+    },
+    "motion": {
+      "autoZoom": "alternate",
+      "cutTransition": "zoom-blur",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "punchy",
+      "vignette": 0.2,
+      "grain": 0
+    },
+    "hook": {
+      "style": "marker",
+      "duration": 2.2
+    },
+    "progressBar": true
+  }
+}

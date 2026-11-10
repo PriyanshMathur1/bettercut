@@ -1,0 +1,29 @@
+{
+  "id": "neon-night",
+  "name": "Neon Night",
+  "description": "Moody grade, glowing captions, glitch cuts.",
+  "patch": {
+    "format": {
+      "id": "full"
+    },
+    "captions": {
+      "style": "neon-cyan",
+      "position": "lower",
+      "wordsPerPage": 3
+    },
+    "motion": {
+      "autoZoom": "alternate",
+      "cutTransition": "glitch",
+      "camera": "none"
+    },
+    "grade": {
+      "preset": "moody",
+      "vignette": 0.5,
+      "grain": 0.1
+    },
+    "hook": {
+      "style": "neon",
+      "duration": 2.2
+    }
+  }
+}
