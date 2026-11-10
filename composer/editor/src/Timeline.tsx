@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimateRow } from "./AnimateRow";
 import { CLIP_DRAG } from "./workspace";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
@@ -172,6 +173,7 @@ const KeyRow: React.FC<{
               <option value="smooth">Smooth</option>
               <option value="linear">Steady</option>
               <option value="hold">Jump</option>
+              <option value="back">Overshoot</option>
             </select>
           </label>
           <button
@@ -702,6 +704,7 @@ export const Timeline: React.FC<{
               <NumField step={0.02} min={0} max={0.5} value={selLayer.l.radius ?? 0} onChange={(v) => setLayer({ radius: v || undefined })} />
             </label>
           </div>
+          <AnimateRow what="layer" keys={selLayer.l.keys} rest={layerBase(selLayer.l)} len={selLayer.r.end - selLayer.r.start} onChange={(keys) => setLayer({ keys })} />
           <KeyRow
             what="layer"
             keys={selLayer.l.keys}
@@ -714,7 +717,27 @@ export const Timeline: React.FC<{
           <FxRow what="layer" effects={selLayer.l.effects} onChange={(effects) => setLayer({ effects })} />
         </>
       ) : selOv ? (
-        <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
+        <>
+          <AnimateRow
+            what="overlay"
+            keys={selOv.o.keys}
+            rest={overlayBase(selOv.o)}
+            len={selOv.r.end - selOv.r.start}
+            onChange={(keys, phase, applied) =>
+              update((s) => ({
+                ...s,
+                overlays: s.overlays.map((o, j) => {
+                  if (j !== selOv.i) return o;
+                  const { keys: _k, enter: _e, ...rest } = o;
+                  // an "in" animation replaces the overlay's built-in entrance; removing it brings that back
+                  const enter = phase === "in" ? (applied ? "none" : undefined) : o.enter;
+                  return { ...rest, ...(keys ? { keys } : {}), ...(enter !== undefined ? { enter } : {}) };
+                }),
+              }))
+            }
+          />
+          <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
+        </>
       ) : selected ? (
         <KeyRow
           what="shot"
