@@ -51,27 +51,42 @@ export function primaryApprox(g: GradeSettings): string {
   return f.join(" ");
 }
 
+const FILL: React.CSSProperties = { position: "absolute", inset: 0, pointerEvents: "none" };
+
+/** Darkened edges, filling the box it is placed in. `amount` is 0..1. */
+export const Vignette: React.FC<{ amount: number }> = ({ amount }) => (
+  <div style={{ ...FILL, background: `radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,${(0.85 * amount).toFixed(3)}) 100%)` }} />
+);
+
+/**
+ * Film grain, filling the box it is placed in. `amount` is 0..1. The pattern changes a few times a second
+ * from the frame number, so every render of the same frame matches. `uid` keeps filter ids apart when
+ * several grains are on screen.
+ */
+export const Grain: React.FC<{ amount: number; uid: string }> = ({ amount, uid }) => {
+  const frame = useCurrentFrame();
+  const id = `grain-${uid}-${frame % 4}`;
+  return (
+    <div style={{ ...FILL, opacity: amount * 0.5, mixBlendMode: "overlay" }}>
+      <svg width="100%" height="100%">
+        <filter id={id}>
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={frame % 4} stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter={`url(#${id})`} />
+      </svg>
+    </div>
+  );
+};
+
 /** Tint, vignette and grain drawn above the footage. */
 export const GradeOverlay: React.FC<{ grade: GradeSettings }> = ({ grade }) => {
-  const frame = useCurrentFrame();
   const def = GRADE_MAP[grade.preset];
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       {def?.tint ? <AbsoluteFill style={{ background: def.tint, opacity: def.tintOpacity, mixBlendMode: "soft-light" }} /> : null}
-      {grade.vignette > 0 ? (
-        <AbsoluteFill style={{ background: `radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,${0.85 * grade.vignette}) 100%)` }} />
-      ) : null}
-      {grade.grain > 0 ? (
-        <AbsoluteFill style={{ opacity: grade.grain * 0.5, mixBlendMode: "overlay" }}>
-          <svg width="100%" height="100%">
-            <filter id={`grain-${frame % 4}`}>
-              <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={frame % 4} stitchTiles="stitch" />
-              <feColorMatrix type="saturate" values="0" />
-            </filter>
-            <rect width="100%" height="100%" filter={`url(#grain-${frame % 4})`} />
-          </svg>
-        </AbsoluteFill>
-      ) : null}
+      {grade.vignette > 0 ? <Vignette amount={grade.vignette} /> : null}
+      {grade.grain > 0 ? <Grain amount={grade.grain} uid="reel" /> : null}
     </AbsoluteFill>
   );
 };
