@@ -68,7 +68,7 @@ export const ReviewPanel: React.FC<{
             <button onClick={copy}>{copied ? "Copied" : "Copy"}</button>
           </div>
           {onlyHere(location.origin) ? (
-            <p className="hint warn">This address only opens on this computer. To share it, run BetterCut somewhere others can reach (a hosted copy, or a tunnel to this one).</p>
+            <p className="hint warn">This address only opens on this computer. Don't put this editor on the internet to share it: it has no sign-in, so anyone with the address could change your reels. Sharing with others needs hosted BetterCut.</p>
           ) : null}
           {!info.render ? <p className="hint warn">Nothing is rendered yet: render the reel so reviewers have something to watch.</p> : null}
           <div className="row">
