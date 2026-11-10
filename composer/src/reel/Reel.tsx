@@ -237,7 +237,19 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   );
 
   // ---- audio: music ducking + sfx ------------------------------------------
-  const speech = useMemo(() => words.map((w) => [w.outStart, w.outEnd] as [number, number]), [words]);
+  // voiceovers: each starts where its start moment plays in the reel and runs for its full length
+  const voiceovers = useMemo(
+    () =>
+      (spec.voiceovers || [])
+        .map((v) => ({ v, at: snapToOutput(placed, v.start), len: Math.max(0, v.end - v.start) }))
+        .filter((x): x is { v: NonNullable<typeof spec.voiceovers>[number]; at: number; len: number } => x.at !== null && x.len > 0),
+    [spec.voiceovers, placed],
+  );
+  // the music ducks under spoken words and under voiceovers alike
+  const speech = useMemo(
+    () => [...words.map((w) => [w.outStart, w.outEnd] as [number, number]), ...voiceovers.map((x) => [x.at, x.at + x.len] as [number, number])],
+    [words, voiceovers],
+  );
   const musicVol = (f: number) => {
     const a = spec.audio;
     if (!a?.music) return 0;
@@ -400,6 +412,11 @@ export const Reel: React.FC<ReelProps> = (spec) => {
       {spec.safeGuide ? <SafeGuide W={W} H={H} /> : null}
 
       {spec.audio?.music ? <Audio src={resolveAsset(spec.audio.music)} volume={musicVol} loop /> : null}
+      {voiceovers.map(({ v, at, len }, i) => (
+        <Sequence key={`vo${i}-${v.src}`} from={Math.round(at * fps)} durationInFrames={Math.max(1, Math.round(len * fps))} layout="none">
+          <Audio src={resolveAsset(v.src)} volume={Math.min(2, Math.max(0, v.volume ?? 1))} />
+        </Sequence>
+      ))}
       {sfx.map((s, i) => (
         <Sequence key={`sfx-${i}`} from={Math.max(0, Math.round(s.at * fps))} durationInFrames={Math.round(2 * fps)} layout="none">
           <Audio src={sfxSrc(s.sound)} volume={s.volume} />

@@ -597,3 +597,26 @@ def test_green_screen_makes_the_cutout_once_and_removes_it_when_switched_off(tmp
     del again["source"]["key"]
     off = gs.bake(again, proj, log=lambda m: None)
     assert "matte" not in off["source"] and "keyed" not in off["source"] and gs.is_current(off)
+
+
+def test_browser_recordings_with_no_length_are_repaired(tmp_path):
+    """MediaRecorder writes a live stream with no length; the pipeline would read it as 0 seconds."""
+    import shutil
+    import subprocess
+
+    from bettercut import media
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("needs ffmpeg")
+    rec = tmp_path / "take.webm"
+    made = subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=180x320:r=15:d=1", "-f", "lavfi", "-i", "sine=f=330:d=1",
+         "-c:v", "libvpx", "-b:v", "200k", "-c:a", "libopus", "-f", "webm", "-live", "1", str(rec)], capture_output=True)
+    if made.returncode != 0:
+        pytest.skip("this ffmpeg build can't write a live webm")
+    assert media.probe(rec)["duration"] == 0  # how a browser recording arrives
+    media.fix_recording(rec)
+    assert 0.8 < media.probe(rec)["duration"] < 1.3 and 0.8 < media.audio_seconds(rec) < 1.3
+    size = rec.stat().st_size
+    media.fix_recording(rec)  # already has a length: left alone
+    assert rec.stat().st_size == size and not list(tmp_path.glob("*.fixed*"))

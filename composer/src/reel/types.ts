@@ -158,6 +158,16 @@ export interface BrollClip {
   kind?: "video" | "image";
 }
 
+/** A voiceover recording. It starts at `start` (SOURCE seconds) and plays for its whole length, end - start. */
+export interface Voiceover {
+  id?: string;
+  src: string;
+  start: number;
+  end: number;
+  /** 0..2, default 1. */
+  volume?: number;
+}
+
 export interface MotionEvent {
   effect: string;
   /** Source second; for camera effects the start of the range. */
@@ -279,6 +289,8 @@ export interface ReelSpec {
   hook?: HookTitle;
   overlays: ReelOverlay[];
   broll: BrollClip[];
+  /** Recorded narration laid over the reel. */
+  voiceovers?: Voiceover[];
   motion: MotionSettings;
   grade: GradeSettings;
   audio: AudioSettings;
