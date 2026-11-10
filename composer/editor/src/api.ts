@@ -142,6 +142,11 @@ export const api = {
     af(`/api/projects/${pid}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quality, aspects }) }).then((r) =>
       j<{ job: string }>(r),
     ),
+  addClips: (pid: string, files: File[]) => {
+    const f = new FormData();
+    files.forEach((x) => f.append("files", x));
+    return af(`/api/projects/${pid}/clips`, { method: "POST", body: f }).then((r) => j<{ job: string }>(r));
+  },
   bake: (pid: string) => af(`/api/projects/${pid}/bake`, { method: "POST" }).then((r) => j<{ job: string }>(r)),
   luts: (pid: string) => af(`/api/projects/${pid}/luts`).then((r) => j<{ id: string; img: string }[]>(r)),
   broll: (pid: string) => af(`/api/projects/${pid}/broll`, { method: "POST" }).then((r) => j<{ job: string }>(r)),

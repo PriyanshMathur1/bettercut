@@ -173,6 +173,31 @@ async def create_project(
     return {"project": pid, "job": job["id"]}
 
 
+@app.post("/api/projects/{pid}/clips")
+async def add_clips(pid: str, files: list[UploadFile] = File(...), names: str = Form(""), model: str = Form("small")):
+    """Append more footage to a reel. Only the new clips are transcribed; existing edits are kept."""
+    proj = _proj(pid)
+    inputs = proj / "inputs" / f"add-{int(time.time())}"
+    inputs.mkdir(parents=True)
+    saved = []
+    for f in files:
+        if Path(f.filename or "").suffix.lower() not in VIDEO_EXT:
+            continue
+        dst = inputs / Path(f.filename).name
+        with open(dst, "wb") as fh:
+            shutil.copyfileobj(f.file, fh)
+        saved.append(str(dst))
+    if not saved:
+        raise HTTPException(400, "upload at least one video file")
+
+    def work(job, log):
+        _history(proj, pipeline.load(proj))  # the old footage file is kept, so Undo brings the reel back
+        spec = pipeline.add_clips(proj, saved, names=[n.strip() for n in names.split(",") if n.strip()], model=model, log=log)
+        return {"project": pid, "shots": len(spec["segments"])}
+
+    return {"job": _job("clips", pid, work)["id"]}
+
+
 @app.get("/api/projects/{pid}/spec")
 def get_spec(pid: str):
     proj = _proj(pid)

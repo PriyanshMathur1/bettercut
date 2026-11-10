@@ -32,6 +32,10 @@ export interface ReelSegment {
   speed?: number;
   /** Freeze frame: hold this shot's last frame for this many seconds. */
   hold?: number;
+  /** Play this shot backwards. Needs `reversed`, which the pipeline makes on the next bake or render. */
+  reverse?: boolean;
+  /** The reversed file for this shot and the stretch of footage it covers (written by the pipeline). */
+  reversed?: { src: string; start: number; end: number; of?: string };
   /** Transition into this shot (an effect id, or "none"). Unset = the reel's default cut transition. */
   transition?: string;
   /** Continues the previous shot seamlessly (a speed-ramp step): no cut transition, sound or punch-in change. */

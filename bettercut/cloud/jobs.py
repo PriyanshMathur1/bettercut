@@ -124,6 +124,16 @@ def merge_baked(ctx: Ctx, prepared: dict) -> None:
         if new is not None and (cur.get(a) or {}).get(b) != new:
             cur.setdefault(a, {})[b] = new
             changed = True
+    # reversed-shot files: copy onto the same shot (same footage range) in the latest spec
+    made = {(s["start"], s["end"]): s["reversed"] for s in rel.get("segments", []) if s.get("reverse") and s.get("reversed")}
+    for s in cur.get("segments", []):
+        new = made.get((s["start"], s["end"])) if s.get("reverse") else None
+        if new and s.get("reversed") != new:
+            s["reversed"] = new
+            changed = True
+        elif not s.get("reverse") and "reversed" in s:
+            del s["reversed"]
+            changed = True
     if changed:
         add_version(ctx.project_id, cur, "pipeline", "Baked colour and audio")
 
@@ -216,6 +226,21 @@ def h_bake(ctx: Ctx) -> dict:
     return {"baked": True}
 
 
+def h_clips(ctx: Ctx) -> dict:
+    """Append uploaded clips to the reel (only the new footage is transcribed)."""
+    started = time.time()
+    cfg = settings()
+    spec, proj = checkout(ctx.user_id, ctx.project_id)
+    names = list(dict.fromkeys([*ctx.params.get("names", []), *memory.spellings(memory.active(ctx.user_id))]))
+    ctx.progress(0.05)
+    new = pipeline.add_clips(proj, [str(proj / f) for f in ctx.params["files"]], names=names, model=cfg.whisper_model, log=ctx.log)
+    add_version(ctx.project_id, storage.relativise(new, proj), "pipeline", "Added clips")
+    storage.sync_up(ctx.user_id, ctx.project_id, since=started - 1)
+    for f in ctx.params["files"]:
+        shutil.rmtree((proj / f).parent, ignore_errors=True)
+    return {"project": ctx.project_id, "shots": len(new["segments"])}
+
+
 def h_notes(ctx: Ctx, complete: agent.Complete | None = None) -> dict:
     notes = ctx.params["notes"]
     with db.session() as s:
@@ -246,7 +271,7 @@ def h_notes(ctx: Ctx, complete: agent.Complete | None = None) -> dict:
             "tokens": res["tokens_in"] + res["tokens_out"]}
 
 
-HANDLERS = {"make": h_make, "render": h_render, "bake": h_bake, "notes": h_notes}
+HANDLERS = {"make": h_make, "render": h_render, "bake": h_bake, "notes": h_notes, "clips": h_clips}
 
 
 # ---- worker ----------------------------------------------------------------------------

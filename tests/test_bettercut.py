@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+from pathlib import Path
+
 import pytest
 
 from bettercut import autocut, enrich, mimic, spec as specmod, timeline
@@ -416,3 +418,95 @@ def test_shots_play_in_listed_order_with_freeze_frames_and_joins():
     assert placed[-1]["outEnd"] == 9.5
     assert [p["shot"] for p in placed] == [0, 0, 1]
     assert tl.to_output(placed, 3) == 4.5  # after the 1.5 s freeze
+
+
+def _fake_media(monkeypatch, tmp_path, new_words, add_len=6.0, old_len=10.0):
+    """Stand-ins for ffmpeg and whisper so add_clips runs in milliseconds."""
+    from bettercut import media
+
+    def assemble(files, out, stabilize=False):
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"add")
+        return {"clips": [{"clip": "new.mp4", "path": "new.mp4", "start": 0.0, "duration": add_len}], "duration": add_len}
+
+    def concat(files, out):
+        out.write_bytes(b"joined")
+        return out
+
+    monkeypatch.setattr(media, "find_clips", lambda clips, newest=None: ["new.mp4"])
+    monkeypatch.setattr(media, "assemble", assemble)
+    monkeypatch.setattr(media, "concat", concat)
+    monkeypatch.setattr(media, "probe", lambda p: {"duration": old_len + add_len if "source-" in str(p) else (add_len if str(p).endswith("add.mp4") else old_len)})
+    monkeypatch.setattr(media, "transcribe", lambda *a, **k: [dict(w) for w in new_words])
+    monkeypatch.setattr(media, "speech_gaps", lambda p: [])
+
+
+def _reel(tmp_path, **source):
+    from bettercut import pipeline
+
+    proj = tmp_path / "p"
+    (proj / "assets").mkdir(parents=True)
+    (proj / "work").mkdir()
+    src = proj / "assets" / "source.mp4"
+    src.write_bytes(b"old")
+    spec = {"version": 1, "source": {"src": str(src), "duration": 10.0, "width": 1080, "height": 1920, "fps": 30, **source},
+            "segments": [{"id": "s1", "start": 0.0, "end": 4.0, "speed": 2}, {"id": "s2", "start": 5.0, "end": 9.0}],
+            "words": [{"text": "Hello", "start": 0.2, "end": 0.6, "cut": True}], "overlays": [{"kind": "keyword", "start": 1, "end": 2, "text": "x"}],
+            "grade": {"preset": "punchy", "baked": "abc"}}
+    pipeline.save(proj, spec)
+    return proj, spec
+
+
+def test_add_clips_appends_footage_and_keeps_every_existing_edit(tmp_path, monkeypatch):
+    from bettercut import pipeline
+
+    proj, before = _reel(tmp_path, graded="/old/graded.mp4")
+    _fake_media(monkeypatch, tmp_path, [{"text": "New", "start": 0.5, "end": 0.9}, {"text": "part.", "start": 1.0, "end": 1.4}])
+    spec = pipeline.add_clips(proj, ["new.mp4"], reframe=False, log=lambda m: None)
+
+    assert spec["segments"][:2] == before["segments"] and spec["words"][:1] == before["words"] and spec["overlays"] == before["overlays"]
+    new = spec["segments"][2:]
+    assert new and all(s["start"] >= 10.0 and s["end"] <= 16.0 for s in new)  # after the old footage
+    assert len({s["id"] for s in spec["segments"]}) == len(spec["segments"])
+    assert [(w["text"], w["start"]) for w in spec["words"][1:]] == [("New", 10.5), ("part.", 11.0)]
+    assert spec["source"]["duration"] == 16.0
+    assert spec["source"]["src"] != before["source"]["src"] and Path(spec["source"]["src"]).exists()
+    assert Path(before["source"]["src"]).exists()  # kept, so Undo still has footage to show
+    assert "graded" not in spec["source"] and "baked" not in spec["grade"]  # must be re-baked from the new footage
+    assert pipeline.load(proj) == spec
+
+
+def test_add_clips_with_no_speech_adds_one_whole_shot_and_refuses_cutout_reels(tmp_path, monkeypatch):
+    from bettercut import pipeline
+
+    proj, _ = _reel(tmp_path)
+    _fake_media(monkeypatch, tmp_path, [])
+    spec = pipeline.add_clips(proj, ["new.mp4"], reframe=False, log=lambda m: None)
+    assert [(s["start"], s["end"]) for s in spec["segments"][2:]] == [(10.0, 16.0)] and len(spec["words"]) == 1
+
+    proj2, _ = _reel(tmp_path / "b", matte="/x/matte.webm")
+    with pytest.raises(RuntimeError, match="cutout"):
+        pipeline.add_clips(proj2, ["new.mp4"], reframe=False, log=lambda m: None)
+
+
+def test_reversed_shots_get_a_file_that_survives_trimming_inwards(tmp_path, monkeypatch):
+    from bettercut import media, reverse
+
+    proj, spec = _reel(tmp_path)
+    made = []
+    monkeypatch.setattr(media, "reverse_span", lambda src, a, b, out: (made.append((a, b)), out.write_bytes(b"rev"), out)[2])
+    assert reverse.is_current(spec)  # nothing reversed: nothing to do
+
+    spec["segments"][1]["reverse"] = True
+    assert not reverse.is_current(spec)
+    baked = reverse.bake(spec, proj, log=lambda m: None)
+    r = baked["segments"][1]["reversed"]
+    assert made == [(5.0, 9.0)] and Path(r["src"]).exists() and (r["start"], r["end"]) == (5.0, 9.0)
+    assert "reversed" not in baked["segments"][0] and reverse.is_current(baked)
+
+    baked["segments"][1].update(start=6.0, end=8.0)  # trimmed inwards: the same file still covers it
+    assert reverse.is_current(baked) and reverse.bake(baked, proj, log=lambda m: None) == baked and len(made) == 1
+    baked["segments"][1]["start"] = 4.5  # trimmed outwards: needs a new file
+    assert not reverse.is_current(baked)
+    baked["segments"][1]["reverse"] = False  # switched off: the file reference goes away
+    assert "reversed" not in reverse.bake(baked, proj, log=lambda m: None)["segments"][1]

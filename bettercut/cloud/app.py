@@ -357,6 +357,38 @@ async def create_project(
     return {"project": pid, "job": jid}
 
 
+@app.post("/api/projects/{pid}/clips")
+async def add_clips(pid: str, files: list[UploadFile] = File(...), names: str = Form(""), me: Caller = Depends(caller)):
+    """Append more footage to a reel. Same per-clip and upload limits as a new reel."""
+    cfg = settings()
+    with db.session() as s:
+        _project(s, pid, me)
+        if db.latest_spec(s, pid) is None:
+            raise HTTPException(409, "still processing")
+    proj = storage.project_dir(me.id, pid)
+    folder = proj / "inputs" / f"add-{int(time.time())}"
+    saved: list[str] = []
+    try:
+        budget = cfg.max_upload_mb << 20
+        for i, f in enumerate(files[:20]):
+            if Path(f.filename or "").suffix.lower() not in VIDEO_EXT:
+                continue
+            dst = folder / f"{i:02d}_{_safe_name(f.filename)}"
+            budget -= await _save_upload(f, dst, budget)
+            info = probe(dst)
+            if not info.get("duration"):
+                raise HTTPException(400, f"{f.filename} isn't a video this editor can read")
+            if info["duration"] > cfg.max_clip_seconds:
+                raise HTTPException(400, f"{f.filename} is {info['duration']:.0f} s long; the limit is {cfg.max_clip_seconds} s per clip")
+            saved.append(str(dst.relative_to(proj)))
+        if not saved:
+            raise HTTPException(400, "upload at least one video file")
+    except Exception:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return _enqueue_for(pid, me, "clips", {"files": saved, "names": [n.strip() for n in names.split(",") if n.strip()]})
+
+
 @app.delete("/api/projects/{pid}")
 def delete_project(pid: str, me: Caller = Depends(caller)):
     with db.session() as s:
