@@ -1,3 +1,4 @@
+import { setTranslation, translationRows } from "../../src/reel/translate";
 import React, { useState } from "react";
 import type { ReelSpec, ReelOverlay, OverlayKind, BrollClip } from "../../src/reel/types";
 import { CAPTION_STYLES, type CaptionStyle } from "../../src/reel/captions/styles";
@@ -86,6 +87,70 @@ const DEFAULT_OVERLAY: Record<string, Partial<ReelOverlay>> = {
   postCard: { text: "Something worth saying in a post." },
 };
 
+/** Captions in a second language: one line per sentence, typed here or filled in by the user's AI. */
+const Translation: React.FC<{ spec: ReelSpec; update: (fn: (s: ReelSpec) => ReelSpec) => void }> = ({ spec, update }) => {
+  const tr = spec.captions.translation;
+  const [open, setOpen] = useState(!!tr);
+  const rows = translationRows(spec.words, tr?.lines);
+  const patch = (p: Partial<NonNullable<ReelSpec["captions"]["translation"]>>) =>
+    update((s) => ({ ...s, captions: { ...s.captions, translation: { language: "", mode: "below", lines: [], ...s.captions.translation, ...p } } }));
+  const done = rows.filter((r) => r.translated).length;
+  if (!rows.length) return null;
+  return (
+    <div className="translation">
+      <h4>
+        Translation{" "}
+        <small>
+          {tr ? `${done} of ${rows.length} sentences` : "captions in a second language"}
+        </small>
+      </h4>
+      {!open ? (
+        <button onClick={() => setOpen(true)}>Add a translation</button>
+      ) : (
+        <>
+          <div className="controls">
+            <Field label="Language">
+              <input value={tr?.language || ""} placeholder="Spanish" onChange={(e) => patch({ language: e.target.value })} />
+            </Field>
+            <Field label="Show">
+              <select value={tr?.mode || "below"} onChange={(e) => patch({ mode: e.target.value as "below" | "replace" })}>
+                <option value="below">Both languages</option>
+                <option value="replace">Translation only</option>
+              </select>
+            </Field>
+          </div>
+          <small className="hint">
+            Type each line, or ask your AI: "Translate the captions of this reel into {tr?.language || "Spanish"}." It fills these in for you.
+          </small>
+          <ul className="tr-rows">
+            {rows.map((r, i) => (
+              <li key={r.start}>
+                <span>{r.text}</span>
+                <input
+                  dir="auto"
+                  value={r.translated}
+                  placeholder="Translation"
+                  onChange={(e) => patch({ lines: setTranslation(spec.words, tr?.lines, i, e.target.value) })}
+                />
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={() => {
+              if (!done || window.confirm("Remove the translation from this reel?")) {
+                update((s) => ({ ...s, captions: (({ translation: _drop, ...rest }) => rest)(s.captions) as ReelSpec["captions"] }));
+                setOpen(false);
+              }
+            }}
+          >
+            Remove translation
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
 export const Panel: React.FC<PanelProps> = ({ tab, spec, update, catalog, pid, sourceNow, applyLook, refreshCatalog }) => {
   const hasMatte = !!spec.source.matte;
   const set = <K extends keyof ReelSpec>(k: K, patch: Partial<ReelSpec[K]>) => update((s) => ({ ...s, [k]: { ...(s[k] as any), ...patch } }));
@@ -123,6 +188,7 @@ export const Panel: React.FC<PanelProps> = ({ tab, spec, update, catalog, pid, s
           <Slider label="Words per line" value={c.wordsPerPage} min={1} max={8} step={1} onChange={(v) => set("captions", { wordsPerPage: v })} />
           <Toggle label="ALL CAPS" value={!!c.uppercase} onChange={(v) => set("captions", { uppercase: v })} />
         </div>
+        <Translation spec={spec} update={update} />
         {Object.entries(groups).map(([g, list]) => (
           <div key={g}>
             <h4>{g}</h4>

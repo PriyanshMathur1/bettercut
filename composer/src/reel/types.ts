@@ -74,6 +74,17 @@ export interface CaptionSettings {
   /** Colour overrides; default comes from the brand. */
   color?: string;
   highlight?: string;
+  /** Captions in a second language: one line per sentence. */
+  translation?: CaptionTranslation;
+}
+
+export interface CaptionTranslation {
+  /** Name of the language, for people ("Spanish", "हिन्दी"). */
+  language: string;
+  /** "below" = bilingual, under the original captions; "replace" = the translation only. */
+  mode: "below" | "replace";
+  /** One line per sentence; start/end are SOURCE seconds. */
+  lines: { start: number; end: number; text: string }[];
 }
 
 export interface HookTitle {

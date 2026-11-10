@@ -528,3 +528,14 @@ def test_local_mode_has_a_keyless_endpoint_that_web_pages_cannot_drive(client, m
     config.reset()
     assert rpc(client, "/mcp", "ping").json()["result"] == {}
     assert rpc(client, "/mcp", "ping", headers={"Origin": "https://evil.example"}).status_code == 403
+
+
+def test_the_ai_can_read_sentences_and_set_a_translation(cloud):
+    """Translated captions: the model reads the sentences, then patches one line per sentence."""
+    ses = agent.Session(base_spec(), lambda k, t, v: None, guard.spec_issues)
+    lines = json.loads(ses.call("get_spec", {"section": "sentences"}))
+    assert [l["text"] for l in lines] == ["Hello world.", "Second shot."]
+    assert [(l["start"], l["end"]) for l in lines] == [(0.2, 1.2), (5.2, 6.3)]
+    value = {"language": "Spanish", "mode": "below", "lines": [{**l, "text": t} for l, t in zip(lines, ["Hola mundo.", "Segunda toma."])]}
+    assert ses.call("patch_spec", {"ops": [{"op": "add", "path": "/captions/translation", "value": value}], "why": "Spanish captions"}) == "ok"
+    assert ses.spec["captions"]["translation"]["lines"][1]["text"] == "Segunda toma."
