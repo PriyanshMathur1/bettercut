@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
 import { baseOf, freezeAt, moveShot, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, splitMany, trimShot } from "../../src/reel/edit";
@@ -157,7 +158,12 @@ export const Timeline: React.FC<{
   /** Tells the editor which layer is selected, so it can be dragged in the preview. */
   onSelectLayer?: (index: number | null) => void;
   busy?: boolean;
-}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, onSelectLayer, busy }) => {
+  /** Where the selected item's properties are drawn: the inspector panel on the right. */
+  inspector?: HTMLElement | null;
+  /** Tells the editor whether anything is selected, so the inspector can show the project instead. */
+  onSelection?: (has: boolean) => void;
+}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, onSelectLayer, busy, inspector, onSelection }) => {
+  const [tool, setTool] = useState<"select" | "razor">("select");
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
@@ -269,6 +275,8 @@ export const Timeline: React.FC<{
     const on = (e: KeyboardEvent) => {
       if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "s" || e.key === "S") keys.current.split();
+      else if (e.key === "v" || e.key === "V") setTool("select");
+      else if (e.key === "c" || e.key === "C") setTool("razor");
       else if (e.key === "Delete" || e.key === "Backspace") keys.current.remove();
       else if (e.key === "Escape") {
         setSel(null);
@@ -387,19 +395,7 @@ export const Timeline: React.FC<{
   const step = tickStep(duration, zoom);
   const ticks = Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
 
-  return (
-    <div className="tl">
-      <div className="tl-bar">
-        <button onClick={split} disabled={!canSplit} title="Cut the shot at the playhead (S)">
-          Split
-        </button>
-        <button onClick={remove} disabled={extraItem ? false : sel === null || shots.length <= 1} title={extraItem ? "Remove the selected overlay (Delete)" : "Remove the selected shot (Delete)"}>
-          {extraItem ? (extra?.kind === "voiceovers" ? "Delete voiceover" : extra?.kind === "layers" ? "Delete layer" : "Delete overlay") : "Delete shot"}
-        </button>
-        <button onClick={freeze} disabled={!canSplit} title="Hold the picture at the playhead for one second">
-          Freeze 1s
-        </button>
-        {selected ? (
+  const selControls = selected ? (
           <>
             <button onClick={() => move(-1)} disabled={sel === 0} title="Play this shot earlier" aria-label="Move shot earlier">
               ◀
@@ -547,7 +543,102 @@ export const Timeline: React.FC<{
           <span className="tl-info">{extra?.kind === "voiceovers" ? "Drag to move" : "Drag to move · drag an edge to resize"}</span>
         ) : (
           <span className="tl-info">Click a shot to select it</span>
-        )}
+        );
+  const keyControls = selLayer && selLayer.l.kind !== "audio" ? (
+        <>
+          <div className="tl-keys">
+            <span className="tl-info">Layer</span>
+            {LAYER_FIELDS.map((f) => (
+              <label key={f.id} title={selLayer.l.keys?.some((k) => typeof k[f.id] === "number") ? "Animated by keyframes: edit the keyframes below" : undefined}>
+                {f.label}
+                <NumField
+                  step={f.step}
+                  min={f.min}
+                  max={f.max}
+                  disabled={!!selLayer.l.keys?.some((k) => typeof k[f.id] === "number")}
+                  value={(layerBase(selLayer.l) as Record<string, number>)[f.id]}
+                  onChange={(v) => setLayer({ [f.id]: v } as Partial<Layer>)}
+                />
+              </label>
+            ))}
+            <label title="Round the corners">
+              Corners
+              <NumField step={0.02} min={0} max={0.5} value={selLayer.l.radius ?? 0} onChange={(v) => setLayer({ radius: v || undefined })} />
+            </label>
+          </div>
+          <KeyRow
+            what="layer"
+            keys={selLayer.l.keys}
+            at={t >= selLayer.r.start - 0.001 && t <= selLayer.r.end + 0.001 ? Math.max(0, t - selLayer.r.start) : null}
+            base={layerBase(selLayer.l)}
+            fields={LAYER_FIELDS}
+            onChange={(keys) => setLayer({ keys })}
+            onGo={(at) => onSeek(selLayer.r.start + at)}
+          />
+        </>
+      ) : selOv ? (
+        <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
+      ) : selected ? (
+        <KeyRow
+          what="shot"
+          keys={selected.keys}
+          at={shotAtPlayhead}
+          base={{ zoom: selected.zoom ?? 1, cx: selected.cx ?? 0.5, cy: selected.cy ?? 0.4 }}
+          fields={SHOT_FIELDS}
+          onChange={setShotKeys}
+          onGo={(at) => {
+            const o = toOutput(placed, at);
+            if (o !== null) onSeek(o);
+          }}
+        />
+      ) : null;
+  const selTitle = selected
+    ? `Shot ${sel! + 1} of ${shots.length}`
+    : selLayer
+      ? `${selLayer.l.kind === "image" ? "Image" : selLayer.l.kind === "audio" ? "Sound" : "Video"} layer`
+      : extra?.kind === "voiceovers"
+        ? "Voiceover"
+        : extra?.kind === "broll"
+          ? "B-roll"
+          : extra?.kind === "overlays"
+            ? "Overlay"
+            : "";
+  const hasSel = !!(selected || extraItem);
+  useEffect(() => {
+    onSelection?.(hasSel);
+  }, [hasSel]);
+
+  return (
+    <div className="tl">
+      {inspector && hasSel
+        ? createPortal(
+            <div className="insp">
+              <h3>{selTitle}</h3>
+              <div className="insp-rows">{selControls}</div>
+              {keyControls}
+            </div>,
+            inspector,
+          )
+        : null}
+      <div className="tl-bar">
+        <div className="tl-tools" role="group" aria-label="Timeline tool">
+          <button className={tool === "select" ? "on" : ""} aria-pressed={tool === "select"} onClick={() => setTool("select")} title="Select: click to select, drag to move or trim (V)">
+            Select
+          </button>
+          <button className={tool === "razor" ? "on" : ""} aria-pressed={tool === "razor"} onClick={() => setTool("razor")} title="Razor: click a shot to cut it at that point (C)">
+            Razor
+          </button>
+        </div>
+        <button onClick={split} disabled={!canSplit} title="Cut the shot at the playhead (S)">
+          Split
+        </button>
+        <button onClick={remove} disabled={extraItem ? false : sel === null || shots.length <= 1} title={extraItem ? "Remove the selected overlay (Delete)" : "Remove the selected shot (Delete)"}>
+          {extraItem ? (extra?.kind === "voiceovers" ? "Delete voiceover" : extra?.kind === "layers" ? "Delete layer" : "Delete overlay") : "Delete shot"}
+        </button>
+        <button onClick={freeze} disabled={!canSplit} title="Hold the picture at the playhead for one second">
+          Freeze 1s
+        </button>
+        <span className="tl-info">{selected || extraItem ? "Properties are in the panel on the right" : tool === "razor" ? "Click a shot to cut it there" : "Click a shot to select it"}</span>
         <div className="spacer" />
         {music && !beatsReady ? (
           <button onClick={() => updateAndBake((s) => s)} disabled={busy} title="Find the beats in this reel's music, to show them here and snap cuts to them">
@@ -609,56 +700,19 @@ export const Timeline: React.FC<{
           <button onClick={() => update((s) => ({ ...s, layers: (s.layers || []).filter((_, i) => !hidden.includes(i)) }))}>{hidden.length === 1 ? "Delete it" : "Delete them"}</button>
         </div>
       ) : null}
-      {selLayer && selLayer.l.kind !== "audio" ? (
-        <>
-          <div className="tl-keys">
-            <span className="tl-info">Layer</span>
-            {LAYER_FIELDS.map((f) => (
-              <label key={f.id} title={selLayer.l.keys?.some((k) => typeof k[f.id] === "number") ? "Animated by keyframes: edit the keyframes below" : undefined}>
-                {f.label}
-                <NumField
-                  step={f.step}
-                  min={f.min}
-                  max={f.max}
-                  disabled={!!selLayer.l.keys?.some((k) => typeof k[f.id] === "number")}
-                  value={(layerBase(selLayer.l) as Record<string, number>)[f.id]}
-                  onChange={(v) => setLayer({ [f.id]: v } as Partial<Layer>)}
-                />
-              </label>
-            ))}
-            <label title="Round the corners">
-              Corners
-              <NumField step={0.02} min={0} max={0.5} value={selLayer.l.radius ?? 0} onChange={(v) => setLayer({ radius: v || undefined })} />
-            </label>
-          </div>
-          <KeyRow
-            what="layer"
-            keys={selLayer.l.keys}
-            at={t >= selLayer.r.start - 0.001 && t <= selLayer.r.end + 0.001 ? Math.max(0, t - selLayer.r.start) : null}
-            base={layerBase(selLayer.l)}
-            fields={LAYER_FIELDS}
-            onChange={(keys) => setLayer({ keys })}
-            onGo={(at) => onSeek(selLayer.r.start + at)}
-          />
-        </>
-      ) : selOv ? (
-        <KeyRow what="overlay" keys={selOv.o.keys} at={ovAt} base={overlayBase(selOv.o)} fields={OVERLAY_FIELDS} onChange={setOverlayKeys} onGo={(at) => onSeek(selOv.r.start + at)} />
-      ) : selected ? (
-        <KeyRow
-          what="shot"
-          keys={selected.keys}
-          at={shotAtPlayhead}
-          base={{ zoom: selected.zoom ?? 1, cx: selected.cx ?? 0.5, cy: selected.cy ?? 0.4 }}
-          fields={SHOT_FIELDS}
-          onChange={setShotKeys}
-          onGo={(at) => {
-            const o = toOutput(placed, at);
-            if (o !== null) onSeek(o);
-          }}
-        />
-      ) : null}
+      <div className="tl-body">
+      <div className="tl-heads" style={{ height: laneHeight }} aria-hidden="true">
+        <span style={{ top: 22, height: 28 }} title="Your footage">V1</span>
+        <span style={{ top: 55, height: 18 }} title="Overlays and b-roll">FX</span>
+        {voices.length ? <span style={{ top: 77, height: 18 }} title="Voiceovers">VO</span> : null}
+        {tracks.map((tr, row) => (
+          <span key={tr} style={{ top: layersTop + (tracks.length - 1 - row) * LANE, height: LANE - 4 }} title={`Layer track ${tr}`}>
+            L{tr}
+          </span>
+        ))}
+      </div>
       <div className="tl-scroll">
-        <div className="tl-lane" ref={lane} style={{ width: `${zoom * 100}%`, height: laneHeight }} onPointerDown={scrub}>
+        <div className={`tl-lane ${tool}`} ref={lane} style={{ width: `${zoom * 100}%`, height: laneHeight }} onPointerDown={scrub}>
           <div className="tl-ruler">
             {beats.map((b) => (
               <em key={b} style={{ left: pct(b) }} />
@@ -678,6 +732,14 @@ export const Timeline: React.FC<{
                 title={`Shot ${base + 1}: ${p.start.toFixed(2)}–${p.end.toFixed(2)}s of the footage${speedOf(p) !== 1 ? `, ${speedOf(p)}×` : ""}`}
                 onPointerDown={(e) => {
                   e.stopPropagation();
+                  if (tool === "razor") {
+                    // cut where you clicked, not at the playhead
+                    const at = toSource(placed, outAt(e.clientX));
+                    update((x) => ({ ...x, segments: splitAt(x.segments, at) }));
+                    setSel(null);
+                    onSeek(outAt(e.clientX));
+                    return;
+                  }
                   setSel(base);
                   setExtra(null);
                   onSeek(outAt(e.clientX));
@@ -774,6 +836,7 @@ export const Timeline: React.FC<{
             ))}
           <div className="playhead" style={{ left: pct(t) }} />
         </div>
+      </div>
       </div>
     </div>
   );

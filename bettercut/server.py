@@ -210,7 +210,7 @@ def get_spec(pid: str):
     if not (proj / "spec.json").exists():
         raise HTTPException(409, "still processing")
     spec = pipeline.load(proj)
-    return {"spec": spec, "issues": validate(spec)}
+    return {"spec": spec, "issues": validate(spec), "clips": pipeline.clip_list(proj)}
 
 
 @app.put("/api/projects/{pid}/spec")

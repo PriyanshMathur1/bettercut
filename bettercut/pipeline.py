@@ -201,6 +201,18 @@ def add_clips(
     return spec
 
 
+def clip_list(project: Path) -> list[dict]:
+    """The clips a project's footage was assembled from: name, where each starts in the footage, and its length."""
+    f = project_paths(project)["work"] / "clips.json"
+    if not f.exists():
+        return []
+    try:
+        clips = json.loads(f.read_text(encoding="utf-8")).get("clips", [])
+    except (ValueError, AttributeError):
+        return []
+    return [{"name": c.get("clip") or Path(str(c.get("path", "clip"))).name, "start": float(c.get("start", 0)), "seconds": float(c.get("duration", 0))} for c in clips]
+
+
 def load(project: Path) -> dict:
     return json.loads(project_paths(project)["spec"].read_text(encoding="utf-8"))
 

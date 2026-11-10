@@ -31,7 +31,7 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **Mimic.** Point it at a reference reel and it builds a matching look.
 - **Edit from Claude or ChatGPT, with no API key.** BetterCut is an MCP connector: your AI app calls its editing tools and the open editor updates live.
 - **Remembers you.** Spellings, style rules and defaults carry over to every new reel. The AI can only suggest a memory; you approve it.
-- **Simple and Pro layouts.** Simple has an icon rail, a big preview, an Ask AI bar under it and one Export menu. Pro puts every panel and control on screen. Both have every feature.
+- **One editor, laid out like the tools editors know.** A media bin with thumbnails on the left, the preview with timecode and frame-by-frame transport in the middle, an inspector for whatever you select on the right, and a timeline with track labels, a select tool and a razor.
 - **Runs on your machine.** Speech recognition is local. Your footage is not uploaded anywhere.
 
 ## Quick start

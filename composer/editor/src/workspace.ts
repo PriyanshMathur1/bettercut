@@ -1,11 +1,8 @@
-// Simple and Pro workspaces. Kept free of React so it runs under `node --test`.
+// The editor's layout rules, kept free of React so they run under `node --test`.
 //
-// Both workspaces have every feature. Pro is the dense layout: a tab list on the left and every
-// render control in the header. Simple is the easy-to-reach layout: an icon rail that groups the
-// same panels, a big preview with an Ask AI bar under it, a Project card on the right and one
-// Export menu. Switching never changes the edit.
-
-export type Workspace = "simple" | "pro";
+// There is one editor with every feature in it: an icon rail on the left that opens the media bin and
+// the style panels, the preview with a transport bar and an Ask AI bar, an inspector on the right, and
+// the timeline along the bottom.
 
 /** Every left-panel tab, in Pro's order. */
 export const TABS = ["Looks", "Captions", "Format", "Motion", "Titles", "Colour", "Overlays", "B-roll", "Audio", "Brand", "Mimic"] as const;
@@ -22,12 +19,12 @@ export interface RailGroup {
   tabs: Tab[];
 }
 
-/** Simple's icon rail. Every tab in TABS sits in exactly one group. */
+/** The icon rail. Every tab in TABS sits in exactly one group; Media also holds the clip bin. */
 export const RAIL: readonly RailGroup[] = [
+  { id: "media", label: "Media", hint: "Your clips, layers and sound, and b-roll cutaways", tabs: ["B-roll"] },
   { id: "looks", label: "Looks", hint: "One-click styles: captions, grade, motion and titles together", tabs: ["Looks"] },
   { id: "captions", label: "Captions", hint: "Caption style, size, position and translated captions", tabs: ["Captions"] },
   { id: "graphics", label: "Graphics", hint: "Opening titles and animated overlays", tabs: ["Titles", "Overlays"] },
-  { id: "media", label: "Media", hint: "B-roll cutaways over your footage", tabs: ["B-roll"] },
   { id: "audio", label: "Audio", hint: "Music, voice clean-up, loudness and sound effects", tabs: ["Audio"] },
   { id: "effects", label: "Effects", hint: "Camera motion, colour grades and LUTs", tabs: ["Motion", "Colour"] },
   { id: "format", label: "Format", hint: "Layout, framing, green screen and your brand", tabs: ["Format", "Brand"] },
@@ -77,27 +74,74 @@ export function askNotes<N extends { t: number | null; text: string }>(queued: r
   return text ? [...queued, { t: null, text }] : [...queued];
 }
 
-export const STORAGE_KEY = "bc.workspace";
+/** The sub-tab that shows the clip bin inside the Media rail button. */
+export const BIN = "Clips";
 
-/** Minimal Storage, so tests can pass a fake and a blocked localStorage doesn't break the editor. */
-export interface KeyStore {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
+/** Sub-tabs of a rail button: its panels, with the clip bin first under Media. One entry means no tab strip. */
+export function subTabs(group: RailGroup): string[] {
+  return group.id === "media" ? [BIN, ...group.tabs] : [...group.tabs];
 }
 
-/** The saved workspace. New users start in Simple; anything unreadable also means Simple. */
-export function readWorkspace(store: KeyStore | undefined): Workspace {
-  try {
-    return store?.getItem(STORAGE_KEY) === "pro" ? "pro" : "simple";
-  } catch {
-    return "simple";
-  }
+export type BinKind = "clip" | "video" | "image" | "audio" | "voice" | "music";
+
+export interface BinItem {
+  kind: BinKind;
+  name: string;
+  /** File to preview (thumbnails), when there is one. */
+  src?: string;
+  /** Where it sits in the footage, in SOURCE seconds; null for music, which plays under everything. */
+  start: number | null;
+  seconds: number;
 }
 
-export function writeWorkspace(store: KeyStore | undefined, ws: Workspace): void {
-  try {
-    store?.setItem(STORAGE_KEY, ws);
-  } catch {
-    // private window or blocked storage: the choice just isn't remembered
-  }
+const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
+
+interface BinSpec {
+  source: { src: string; duration: number };
+  layers?: { kind: string; src: string; start: number; end: number }[];
+  voiceovers?: { src: string; start: number; end: number }[];
+  audio?: { music?: string };
+}
+
+/**
+ * Everything in a project, for the media bin: the clips its footage was built from, then layers,
+ * voiceovers and music. A project with no clip list (made by an older version) shows its footage as one clip.
+ */
+export function binItems(clips: readonly { name: string; start: number; seconds: number }[] | undefined, spec: BinSpec): BinItem[] {
+  const footage: BinItem[] = clips?.length
+    ? clips.map((c) => ({ kind: "clip", name: c.name, src: spec.source.src, start: c.start, seconds: c.seconds }))
+    : [{ kind: "clip", name: "Footage", src: spec.source.src, start: 0, seconds: spec.source.duration }];
+  const layers: BinItem[] = (spec.layers || []).map((l) => ({
+    kind: l.kind === "image" ? "image" : l.kind === "audio" ? "audio" : "video",
+    name: baseName(l.src),
+    src: l.src,
+    start: l.start,
+    seconds: Math.max(0, l.end - l.start),
+  }));
+  const voices: BinItem[] = (spec.voiceovers || []).map((v, i) => ({ kind: "voice", name: `Voiceover ${i + 1}`, src: v.src, start: v.start, seconds: Math.max(0, v.end - v.start) }));
+  const music: BinItem[] = spec.audio?.music ? [{ kind: "music", name: baseName(spec.audio.music), src: spec.audio.music, start: null, seconds: 0 }] : [];
+  return [...footage, ...layers, ...voices, ...music];
+}
+
+/** Timecode as editors read it: hours, minutes, seconds and frames. */
+export function timecode(t: number, fps: number): string {
+  const rate = Math.max(1, Math.round(fps));
+  const frames = Math.max(0, Math.round(t * rate));
+  const two = (n: number) => String(n).padStart(2, "0");
+  const secs = Math.floor(frames / rate);
+  return `${two(Math.floor(secs / 3600))}:${two(Math.floor(secs / 60) % 60)}:${two(secs % 60)}:${two(frames % rate)}`;
+}
+
+/** The nearest cut before `t` (or the start), for the transport's previous-cut button. */
+export function cutBefore(cuts: readonly number[], t: number, slack = 0.05): number {
+  let best = 0;
+  for (const c of cuts) if (c < t - slack && c > best) best = c;
+  return best;
+}
+
+/** The nearest cut after `t` (or the end). */
+export function cutAfter(cuts: readonly number[], t: number, end: number, slack = 0.05): number {
+  let best = end;
+  for (const c of cuts) if (c > t + slack && c < best) best = c;
+  return best;
 }

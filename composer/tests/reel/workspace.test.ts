@@ -1,22 +1,9 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askNotes, groupOf, keepTab, RAIL, railFor, readWorkspace, shapeOf, STORAGE_KEY, TABS, toggleShape, writeWorkspace, type KeyStore } from "../../editor/src/workspace.ts";
+import { askNotes, BIN, binItems, cutAfter, cutBefore, groupOf, keepTab, RAIL, railFor, shapeOf, subTabs, TABS, timecode, toggleShape } from "../../editor/src/workspace.ts";
 
-const memory = (init: Record<string, string> = {}): KeyStore & { data: Record<string, string> } => {
-  const data = { ...init };
-  return { data, getItem: (k) => (k in data ? data[k] : null), setItem: (k, v) => void (data[k] = v) };
-};
-const broken: KeyStore = {
-  getItem: () => {
-    throw new Error("blocked");
-  },
-  setItem: () => {
-    throw new Error("blocked");
-  },
-};
-
-test("Simple's rail reaches every panel Pro has, each exactly once", () => {
+test("the rail reaches every panel, each exactly once", () => {
   const onRail = RAIL.flatMap((g) => g.tabs);
   assert.deepEqual([...onRail].sort(), [...TABS].sort());
   assert.equal(new Set(onRail).size, onRail.length);
@@ -90,25 +77,62 @@ test("Ask with an empty bar sends just the queue", () => {
   assert.deepEqual(askNotes([{ t: 1, text: "cut this" }], ""), [{ t: 1, text: "cut this" }]);
 });
 
-test("new users start in Simple", () => {
-  assert.equal(readWorkspace(memory()), "simple");
-  assert.equal(readWorkspace(undefined), "simple");
+test("Media opens on the clip bin, with b-roll beside it", () => {
+  assert.equal(RAIL[0].id, "media");
+  assert.deepEqual(subTabs(RAIL[0]), [BIN, "B-roll"]);
+  assert.deepEqual(subTabs(groupOf("Colour", RAIL)!), ["Motion", "Colour"]);
 });
 
-test("the choice is remembered", () => {
-  const store = memory();
-  writeWorkspace(store, "pro");
-  assert.equal(store.data[STORAGE_KEY], "pro");
-  assert.equal(readWorkspace(store), "pro");
-  writeWorkspace(store, "simple");
-  assert.equal(readWorkspace(store), "simple");
+const spec = {
+  source: { src: "/p/assets/source.mp4", duration: 30 },
+  layers: [
+    { kind: "video", src: "/p/assets/cutaway.mov", start: 4, end: 9 },
+    { kind: "image", src: "/p/assets/logo.png", start: 0, end: 30 },
+    { kind: "audio", src: "/p/assets/whoosh.wav", start: 12, end: 13 },
+  ],
+  voiceovers: [{ src: "/p/assets/vo.webm", start: 2, end: 6.5 }],
+  audio: { music: "/music/bed.mp3" },
+};
+
+test("the bin lists clips, then layers, voiceovers and music", () => {
+  const items = binItems([{ name: "a.mov", start: 0, seconds: 12 }, { name: "b.mov", start: 12, seconds: 18 }], spec);
+  assert.deepEqual(
+    items.map((i) => [i.kind, i.name, i.start, i.seconds]),
+    [
+      ["clip", "a.mov", 0, 12],
+      ["clip", "b.mov", 12, 18],
+      ["video", "cutaway.mov", 4, 5],
+      ["image", "logo.png", 0, 30],
+      ["audio", "whoosh.wav", 12, 1],
+      ["voice", "Voiceover 1", 2, 4.5],
+      ["music", "bed.mp3", null, 0],
+    ],
+  );
+  assert.equal(items[0].src, "/p/assets/source.mp4"); // clips are parts of the one footage file
 });
 
-test("an unknown saved value means Simple", () => {
-  assert.equal(readWorkspace(memory({ [STORAGE_KEY]: "expert" })), "simple");
+test("a project with no clip list shows its footage as one clip", () => {
+  for (const clips of [undefined, []]) {
+    const items = binItems(clips, { source: { src: "s.mp4", duration: 30 } });
+    assert.deepEqual(items, [{ kind: "clip", name: "Footage", src: "s.mp4", start: 0, seconds: 30 }]);
+  }
 });
 
-test("blocked storage neither throws nor breaks the editor", () => {
-  assert.equal(readWorkspace(broken), "simple");
-  assert.doesNotThrow(() => writeWorkspace(broken, "pro"));
+test("timecode counts frames at the project's rate", () => {
+  assert.equal(timecode(0, 30), "00:00:00:00");
+  assert.equal(timecode(1.5, 30), "00:00:01:15");
+  assert.equal(timecode(61 + 23 / 24, 24), "00:01:01:23");
+  assert.equal(timecode(3600, 25), "01:00:00:00");
+  assert.equal(timecode(0.999, 30), "00:00:01:00"); // rounds to the nearest frame
+  assert.equal(timecode(-2, 30), "00:00:00:00");
+});
+
+test("previous and next cut step from the playhead", () => {
+  const cuts = [3, 7.5, 12];
+  assert.equal(cutBefore(cuts, 8), 7.5);
+  assert.equal(cutBefore(cuts, 7.5), 3); // already on a cut: go to the one before
+  assert.equal(cutBefore(cuts, 2), 0);
+  assert.equal(cutAfter(cuts, 8, 20), 12);
+  assert.equal(cutAfter(cuts, 12, 20), 20);
+  assert.equal(cutAfter(cuts, 3, 20), 7.5);
 });

@@ -1,7 +1,7 @@
-// Pieces of the Simple workspace: the icon rail, the Ask AI bar, the Project card and the Export menu.
-// Every control here drives the same edit as Pro; see workspace.ts.
+// Pieces of the editor's shell: the icon rail, the media bin, the transport bar, the Ask AI bar,
+// the Project card and the Export menu. The rules behind them live in workspace.ts.
 import React, { useEffect, useRef, useState } from "react";
-import type { RailGroup, RailIcon, Tab } from "./workspace";
+import { timecode, type BinItem, type RailGroup, type RailIcon } from "./workspace";
 
 const PATHS: Record<RailIcon, React.ReactNode> = {
   looks: <path d="M12 3l2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7z" />,
@@ -54,12 +54,14 @@ export const Icon: React.FC<{ name: RailIcon }> = ({ name }) => (
 export const Rail: React.FC<{
   rail: RailGroup[];
   open: RailIcon | null;
-  tab: Tab;
+  /** Sub-tabs of the open group; one entry shows no tab strip. */
+  tabs: string[];
+  tab: string;
   onOpen: (g: RailGroup) => void;
-  onTab: (t: Tab) => void;
+  onTab: (t: string) => void;
   onClose: () => void;
   children: React.ReactNode;
-}> = ({ rail, open, tab, onOpen, onTab, onClose, children }) => {
+}> = ({ rail, open, tabs, tab, onOpen, onTab, onClose, children }) => {
   const group = rail.find((g) => g.id === open);
   return (
     <aside className={`s-left ${group ? "" : "shut"}`}>
@@ -79,9 +81,9 @@ export const Rail: React.FC<{
               ×
             </button>
           </div>
-          {group.tabs.length > 1 ? (
+          {tabs.length > 1 ? (
             <div className="s-seg" role="tablist">
-              {group.tabs.map((t) => (
+              {tabs.map((t) => (
                 <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => onTab(t)}>
                   {t}
                 </button>
@@ -94,6 +96,125 @@ export const Rail: React.FC<{
     </aside>
   );
 };
+
+const len = (s: number) => (s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : `0:${String(Math.round(s)).padStart(2, "0")}`);
+const KIND_LABEL: Record<BinItem["kind"], string> = { clip: "Clip", video: "Video layer", image: "Image layer", audio: "Sound", voice: "Voiceover", music: "Music" };
+
+/** A still from a video at a moment, drawn by the browser from the file itself (no thumbnails to make). */
+const Thumb: React.FC<{ item: BinItem; url: (src: string) => string }> = ({ item, url }) => {
+  const src = item.src ? url(item.src) : "";
+  if (src && (item.kind === "clip" || item.kind === "video"))
+    return <video src={`${src}#t=${(item.kind === "clip" ? (item.start ?? 0) : 0) + Math.min(0.5, item.seconds / 2)}`} preload="metadata" muted playsInline tabIndex={-1} />;
+  if (src && item.kind === "image") return <img src={src} alt="" loading="lazy" />;
+  return <span className="s-bin-wave">{item.kind === "music" ? "♫" : item.kind === "voice" ? "●" : "♪"}</span>;
+};
+
+/**
+ * The media bin: every clip the footage was built from, then layers, voiceovers and music.
+ * Click an item to jump to where it sits on the timeline.
+ */
+export const MediaBin: React.FC<{
+  items: BinItem[];
+  url: (src: string) => string;
+  /** Where an item sits in the finished video, or null if that footage was cut. */
+  placeOf: (item: BinItem) => number | null;
+  onGo: (t: number) => void;
+  onAddClips: () => void;
+  onAddMedia: () => void;
+  onRecord: () => void;
+  busy: boolean;
+}> = ({ items, url, placeOf, onGo, onAddClips, onAddMedia, onRecord, busy }) => {
+  const [filter, setFilter] = useState<"all" | "video" | "audio" | "image">("all");
+  const [q, setQ] = useState("");
+  const group = (k: BinItem["kind"]) => (k === "clip" || k === "video" ? "video" : k === "image" ? "image" : "audio");
+  const shown = items.filter((i) => (filter === "all" || group(i.kind) === filter) && i.name.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div className="s-bin">
+      <div className="s-bin-add">
+        <button onClick={onAddClips} disabled={busy} title="Add more video clips to the end of this video">
+          + Clips
+        </button>
+        <button onClick={onAddMedia} disabled={busy} title="Add a video, image or sound on its own track, starting at the playhead">
+          + Layer
+        </button>
+        <button onClick={onRecord} title="Record yourself with a teleprompter">
+          Record
+        </button>
+      </div>
+      <input className="s-bin-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search media…" aria-label="Search media" />
+      <div className="s-bin-filter" role="tablist" aria-label="Kind of media">
+        {(["all", "video", "audio", "image"] as const).map((f) => (
+          <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+            {f === "all" ? "All" : f === "video" ? "Video" : f === "audio" ? "Audio" : "Image"}
+          </button>
+        ))}
+      </div>
+      {shown.length ? (
+        <div className="s-bin-grid">
+          {shown.map((item, i) => {
+            const at = placeOf(item);
+            return (
+              <button key={`${item.kind}-${item.name}-${i}`} className={`s-bin-item ${at === null && item.kind !== "music" ? "off" : ""}`} disabled={at === null} onClick={() => at !== null && onGo(at)} title={at === null ? (item.kind === "music" ? "Plays under the whole video" : "This footage was cut from the video") : `${KIND_LABEL[item.kind]}: jump to it on the timeline`}>
+                <span className="s-bin-thumb">
+                  <Thumb item={item} url={url} />
+                  {item.seconds ? <em>{len(item.seconds)}</em> : null}
+                </span>
+                <span className="s-bin-name">
+                  <i className={`dot ${group(item.kind)}`} />
+                  {item.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="hint">{items.length ? "Nothing matches." : "No media yet."}</p>
+      )}
+    </div>
+  );
+};
+
+/** The transport bar under the preview: timecode, cut-to-cut and frame-by-frame stepping, play. */
+export const Transport: React.FC<{
+  t: number;
+  duration: number;
+  fps: number;
+  playing: boolean;
+  onToggle: () => void;
+  onStep: (frames: number) => void;
+  onPrevCut: () => void;
+  onNextCut: () => void;
+  onUndo: () => void;
+}> = ({ t, duration, fps, playing, onToggle, onStep, onPrevCut, onNextCut, onUndo }) => (
+  <div className="s-transport">
+    <span className="s-tc" title="Hours : minutes : seconds : frames">
+      {timecode(t, fps)}
+    </span>
+    <div className="s-keys">
+      <button onClick={onUndo} title="Undo the last change" aria-label="Undo">
+        ↶
+      </button>
+      <button onClick={onPrevCut} title="Go to the previous cut" aria-label="Previous cut">
+        ⏮
+      </button>
+      <button onClick={() => onStep(-1)} title="Back one frame" aria-label="Back one frame">
+        ◂
+      </button>
+      <button className="play" onClick={onToggle} title={playing ? "Pause (Space)" : "Play (Space)"} aria-label={playing ? "Pause" : "Play"}>
+        {playing ? "❚❚" : "▶"}
+      </button>
+      <button onClick={() => onStep(1)} title="Forward one frame" aria-label="Forward one frame">
+        ▸
+      </button>
+      <button onClick={onNextCut} title="Go to the next cut" aria-label="Next cut">
+        ⏭
+      </button>
+    </div>
+    <span className="s-tc dim" title="Length of the video">
+      {timecode(duration, fps)} · {Math.round(fps)} fps
+    </span>
+  </div>
+);
 
 const EXAMPLES = ["cut the pauses", "bigger captions on the hook", "add music that fits"];
 

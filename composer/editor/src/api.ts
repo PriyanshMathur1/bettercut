@@ -116,7 +116,7 @@ export const api = {
   projects: () => af("/api/projects").then((r) => j<ProjectRow[]>(r)),
   spec: (pid: string) =>
     af(`/api/projects/${pid}/spec`)
-      .then((r) => j<{ spec: ReelSpec; issues: string[]; media?: Record<string, string>; version?: number; author?: string; summary?: string }>(r))
+      .then((r) => j<{ spec: ReelSpec; issues: string[]; media?: Record<string, string>; version?: number; author?: string; summary?: string; clips?: { name: string; start: number; seconds: number }[] }>(r))
       .then((r) => (addMedia(r.media), r)),
   save: (pid: string, spec: ReelSpec) =>
     af(`/api/projects/${pid}/spec`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec) }).then((r) =>

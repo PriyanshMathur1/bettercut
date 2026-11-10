@@ -3,7 +3,7 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { Reel, reelDuration } from "../../src/reel/Reel";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, toOutput, toSource, outputWords, cutTimes, rangeToOutput } from "../../src/reel/timeline";
-import { api, forPlayer, watchJob, type Catalog, type CloudConfig, type Job, type ProjectRow } from "./api";
+import { api, forPlayer, mediaUrl, watchJob, type Catalog, type CloudConfig, type Job, type ProjectRow } from "./api";
 import { Panel, TABS, type Tab } from "./Panels";
 import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
 import { Settings } from "./Settings";
@@ -12,16 +12,8 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { followPlayer, volumeToRestore } from "./preview";
-import { askNotes, groupOf, keepTab, railFor, readWorkspace, shapeOf, toggleShape, writeWorkspace, type RailIcon, type Workspace } from "./workspace";
-import { AskBar, ExportMenu, ProjectCard, Rail, SHAPES } from "./Simple";
-
-const storage = () => {
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-};
+import { askNotes, BIN, binItems, cutAfter, cutBefore, groupOf, keepTab, railFor, shapeOf, subTabs, toggleShape, type BinItem, type RailIcon } from "./workspace";
+import { AskBar, ExportMenu, MediaBin, ProjectCard, Rail, Transport } from "./Shell";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -93,14 +85,15 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   useEffect(() => {
     if (spec) setAspects([nativeShape]); // a project renders in its own shape unless you pick others
   }, [pid, nativeShape, !!spec]);
-  const [ws, setWs] = useState<Workspace>(() => readWorkspace(storage()));
-  const [railOpen, setRailOpen] = useState<RailIcon | null>("looks"); // Simple: the open rail button
-  const clipPicker = useRef<HTMLInputElement>(null); // Simple: "Clips" in the Project card
-  const switchWs = (next: Workspace) => {
-    if (next === "simple") setRailOpen(groupOf(tab, railFor(TABS))?.id ?? "looks"); // keep the panel you were on
-    setWs(next);
-    writeWorkspace(storage(), next);
-  };
+  const [railOpen, setRailOpen] = useState<RailIcon | null>("media"); // the open rail button
+  const [bin, setBin] = useState(true); // Media shows the clip bin (true) or its b-roll panel
+  const [clips, setClips] = useState<{ name: string; start: number; seconds: number }[]>([]);
+  const clipPicker = useRef<HTMLInputElement>(null);
+  const layerPicker = useRef<HTMLInputElement>(null);
+  const [side, setSide] = useState<"Properties" | "Transcript" | "Notes">("Properties"); // the inspector's tab
+  const [inspector, setInspector] = useState<HTMLElement | null>(null); // where the timeline draws the selection's properties
+  const [hasSel, setHasSel] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [wholeReel, setWholeReel] = useState(false);
   const player = useRef<PlayerRef | null>(null);
   const [playerEl, setPlayerEl] = useState<PlayerRef | null>(null); // the mounted player, for effects that must follow it
@@ -125,6 +118,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     try {
       const r = await api.spec(id);
       versionRef.current = r.version ?? null;
+      setClips(r.clips || []);
       setSpec(r.spec);
       setIssues(r.issues);
       setSaving("saved");
@@ -395,16 +389,20 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const renderUrl = (r: string | { name: string; url: string }) => (typeof r === "string" ? `/api/projects/${pid}/renders/${r}` : r.url);
   const renderName = (r: string | { name: string }) => (typeof r === "string" ? r : r.name);
   const tabs: Tab[] = cloud ? TABS.filter((t) => t !== "Mimic") : [...TABS];
-  const simple = ws === "simple";
   const rail = railFor(tabs);
   const group = rail.find((g) => g.id === railOpen);
-  // Simple shows the open rail button's panel; Pro shows whichever tab is picked
-  const shownTab = simple && group ? keepTab(tab, group.tabs) : keepTab(tab, tabs);
+  const shownTab = group ? keepTab(tab, group.tabs) : keepTab(tab, tabs);
+  const subs = group ? subTabs(group) : [];
+  const showBin = group?.id === "media" && bin;
   /** Open a panel from anywhere (the Project card's quick-add buttons). */
   const openTab = (t: Tab) => {
     setTab(t);
+    setBin(false);
     setRailOpen(groupOf(t, rail)?.id ?? null);
   };
+  const items = useMemo(() => (spec ? binItems(clips, spec as any) : []), [clips, spec?.source, spec?.layers, spec?.voiceovers, spec?.audio?.music]);
+  /** Where a bin item starts in the finished video; null if that footage was cut (or it is the music bed). */
+  const placeOf = (item: BinItem) => (item.start === null ? null : (rangeToOutput(placed, item.start, item.start + Math.max(0.05, item.seconds))?.start ?? null));
   const exportFile = (k: "srt" | "vtt" | "fcpxml") => api.exportFile(pid, k, projects.find((p) => p.id === pid)?.title || pid).catch((e) => alert(e.message));
   const pinNote = () => {
     if (!noteText.trim()) return;
@@ -422,6 +420,28 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const current = projects.find((p) => p.id === pid);
   const activeWord = words.find((w) => tOut >= w.outStart && tOut < w.outEnd)?.index;
   const cuts = useMemo(() => cutTimes(placed), [placed]);
+  // a selection on the timeline brings its properties forward
+  useEffect(() => {
+    if (hasSel) setSide("Properties");
+  }, [hasSel]);
+  useEffect(() => {
+    if (!playerEl) return;
+    const on = () => setPlaying(true);
+    const off = () => setPlaying(false);
+    setPlaying(playerEl.isPlaying());
+    playerEl.addEventListener("play", on);
+    playerEl.addEventListener("pause", off);
+    playerEl.addEventListener("ended", off);
+    return () => {
+      playerEl.removeEventListener("play", on);
+      playerEl.removeEventListener("pause", off);
+      playerEl.removeEventListener("ended", off);
+    };
+  }, [playerEl]);
+  const voiceover = () => {
+    voiceAt.current = sourceNow;
+    setRecorder("voice");
+  };
 
   return (
     <div className="app">
@@ -458,15 +478,6 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           </button>
         ) : null}
         <div className="spacer" />
-        <div className="workspace" role="group" aria-label="Editor workspace">
-          <button className={ws === "simple" ? "on" : ""} aria-pressed={ws === "simple"} onClick={() => switchWs("simple")} title="Simple: big preview, icon rail, Ask AI bar and one Export menu. Every feature is here.">
-            Simple
-          </button>
-          <button className={ws === "pro" ? "on" : ""} aria-pressed={ws === "pro"} onClick={() => switchWs("pro")} title="Pro: every panel and control on screen at once">
-            Pro
-          </button>
-        </div>
-        <div className="spacer" />
         {cloud ? (
           <button className="ghost" onClick={() => setSettings("Connect")}>
             {hasModel ? "Settings" : "Connect your AI"}
@@ -484,29 +495,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 <span>Safe zone</span>
               </label>
             ) : null}
-            {simple ? (
-              <ExportMenu busy={job?.status === "running"} shapes={aspects.length} onRender={startRender} onFile={exportFile} />
-            ) : (
-              <>
-                <button className="ghost" onClick={() => startRender("draft")} disabled={job?.status === "running"}>
-                  Draft
-                </button>
-                <div className="aspects">
-                  {SHAPES.map(({ id: a }) => (
-                    <label key={a} className="toggle">
-                      <input type="checkbox" checked={aspects.includes(a)} onChange={(e) => setAspects((x) => (e.target.checked ? [...x, a] : x.filter((y) => y !== a)))} />
-                      <span>{a.replace("x", ":")}</span>
-                    </label>
-                  ))}
-                </div>
-                <button className="primary" onClick={() => startRender("high")} disabled={job?.status === "running" || !aspects.length}>
-                  Render
-                </button>
-                <button className="ghost" title="ProRes HQ master for further finishing" onClick={() => startRender("master")} disabled={job?.status === "running" || !aspects.length}>
-                  ProRes
-                </button>
-              </>
-            )}
+            <ExportMenu busy={job?.status === "running"} shapes={aspects.length} onRender={startRender} onFile={exportFile} />
           </>
         ) : null}
       </header>
@@ -543,69 +532,110 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           </button>
         </div>
       ) : (
-        <main className={simple ? `simple ${group ? "" : "shut"}` : ""}>
-          {simple ? (
-            <Rail rail={rail} open={group ? railOpen : null} tab={shownTab} onOpen={(g) => setRailOpen(g.id)} onTab={setTab} onClose={() => setRailOpen(null)}>
+        <main className={`simple ${group ? "" : "shut"}`}>
+          <Rail
+            rail={rail}
+            open={group ? railOpen : null}
+            tabs={subs}
+            tab={showBin ? BIN : shownTab}
+            onOpen={(g) => setRailOpen(g.id)}
+            onTab={(t) => {
+              setBin(t === BIN);
+              if (t !== BIN) setTab(t as Tab);
+            }}
+            onClose={() => setRailOpen(null)}
+          >
+            {showBin ? (
+              <MediaBin
+                items={items}
+                url={mediaUrl}
+                placeOf={placeOf}
+                onGo={seekOut}
+                onAddClips={() => clipPicker.current?.click()}
+                onAddMedia={() => layerPicker.current?.click()}
+                onRecord={() => setRecorder("camera")}
+                busy={job?.status === "running"}
+              />
+            ) : (
               <Panel tab={shownTab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
-            </Rail>
-          ) : (
-            <aside className="left">
-              <nav>
-                {tabs.map((t) => (
-                  <button key={t} className={shownTab === t ? "on" : ""} onClick={() => setTab(t)}>
-                    {t}
-                  </button>
-                ))}
-              </nav>
-              <div className="panel">
-                <Panel tab={shownTab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
-              </div>
-            </aside>
-          )}
+            )}
+          </Rail>
+          <input
+            ref={clipPicker}
+            type="file"
+            accept="video/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              e.target.value = "";
+              if (files.length) addClips(files);
+            }}
+          />
+          <input
+            ref={layerPicker}
+            type="file"
+            accept="video/*,image/*,audio/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) addMedia(f);
+            }}
+          />
 
           <section className="center">
             <div className="stage">
               {inputProps ? (
                 <div className="stage-frame" style={{ "--ar": (spec.width || 1080) / (spec.height || 1920) } as React.CSSProperties}>
-                <Player
-                  ref={setPlayer}
-                  component={Reel as any}
-                  inputProps={inputProps}
-                  durationInFrames={Math.max(1, Math.round(duration * fps))}
-                  fps={fps}
-                  compositionWidth={spec.width || 1080}
-                  compositionHeight={spec.height || 1920}
-                  style={{ width: "100%", height: "100%", borderRadius: 14, overflow: "hidden" }}
-                  controls
-                  clickToPlay
-                  spaceKeyToPlayOrPause
-                  acknowledgeRemotionLicense
-                  numberOfSharedAudioTags={0}
-                />
-                {handle ? <LayerHandle layer={handle.layer} at={handle.at} onMove={handle.move} /> : null}
+                  <Player
+                    ref={setPlayer}
+                    component={Reel as any}
+                    inputProps={inputProps}
+                    durationInFrames={Math.max(1, Math.round(duration * fps))}
+                    fps={fps}
+                    compositionWidth={spec.width || 1080}
+                    compositionHeight={spec.height || 1920}
+                    style={{ width: "100%", height: "100%", borderRadius: 10, overflow: "hidden" }}
+                    controls
+                    clickToPlay
+                    spaceKeyToPlayOrPause
+                    acknowledgeRemotionLicense
+                    numberOfSharedAudioTags={0}
+                  />
+                  {handle ? <LayerHandle layer={handle.layer} at={handle.at} onMove={handle.move} /> : null}
                 </div>
               ) : null}
             </div>
-            {simple ? (
-              <>
-                <AskBar
-                  value={noteText}
-                  onChange={setNoteText}
-                  at={fmt(tOut)}
-                  queued={notes}
-                  onPin={pinNote}
-                  onUnpin={(i) => setNotes((ns) => ns.filter((_, j) => j !== i))}
-                  onSeek={seekOut}
-                  onAsk={ask}
-                  busy={job?.status === "running"}
-                  needsModel={cloud && !hasModel}
-                  who={cloud ? "your AI" : "Claude"}
-                />
-                {aiReply ? <div className="aireply">{aiReply}</div> : null}
-              </>
-            ) : null}
+            <Transport
+              t={tOut}
+              duration={duration}
+              fps={fps}
+              playing={playing}
+              onToggle={() => player.current?.toggle()}
+              onStep={(n) => {
+                player.current?.pause();
+                player.current?.seekTo(Math.min(Math.max(0, frame + n), Math.max(0, Math.round(duration * fps) - 1)));
+              }}
+              onPrevCut={() => seekOut(cutBefore(cuts, tOut))}
+              onNextCut={() => seekOut(cutAfter(cuts, tOut, duration))}
+              onUndo={async () => setSpec((await api.undo(pid)).spec)}
+            />
+            <AskBar
+              value={noteText}
+              onChange={setNoteText}
+              at={fmt(tOut)}
+              queued={notes}
+              onPin={pinNote}
+              onUnpin={(i) => setNotes((ns) => ns.filter((_, j) => j !== i))}
+              onSeek={seekOut}
+              onAsk={ask}
+              busy={job?.status === "running"}
+              needsModel={cloud && !hasModel}
+              who={cloud ? "your AI" : "Claude"}
+            />
             <Timeline
-              key={pid} // a different reel starts with nothing selected
+              key={pid} // a different video starts with nothing selected
               spec={spec}
               placed={placed}
               duration={duration}
@@ -617,11 +647,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               onAddClips={addClips}
               onAddMedia={addMedia}
               onSelectLayer={setLayerSel}
-              onVoiceover={() => {
-                voiceAt.current = sourceNow;
-                setRecorder("voice");
-              }}
+              onVoiceover={voiceover}
               busy={job?.status === "running"}
+              inspector={inspector}
+              onSelection={setHasSel}
             />
             {issues.length ? (
               <div className="issues">
@@ -629,16 +658,6 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                   <div key={i}>⚠ {i}</div>
                 ))}
               </div>
-            ) : null}
-            {!simple ? (
-            <div className="exportbar">
-              Export:
-              {(["srt", "vtt", "fcpxml"] as const).map((k) => (
-                <button key={k} className="link" title={k === "fcpxml" ? "Open the cut in Final Cut / DaVinci Resolve" : undefined} onClick={() => api.exportFile(pid, k, current?.title || pid).catch((e) => alert(e.message))}>
-                  {k === "fcpxml" ? "FCPXML timeline" : k.toUpperCase()}
-                </button>
-              ))}
-            </div>
             ) : null}
             {current?.renders.length ? (
               <div className="renders">
@@ -653,114 +672,99 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
           </section>
 
           <aside className="right">
-            {simple ? (
-              <>
-                <ProjectCard
-                  shapes={aspects}
-                  native={nativeShape}
-                  onShape={(id) => setAspects((x) => toggleShape(x, id))}
-                  length={fmt(duration)}
-                  shots={spec.segments.length}
-                  cut={spec.words.filter((w) => w.cut).length}
-                  onAdd={(what) => {
-                    if (what === "text") openTab("Titles");
-                    else if (what === "music") openTab("Audio");
-                    else if (what === "captions") openTab("Captions");
-                    else if (what === "broll") openTab("B-roll");
-                    else if (what === "voice") {
-                      voiceAt.current = sourceNow;
-                      setRecorder("voice");
-                    } else clipPicker.current?.click();
-                  }}
-                />
-                <input
-                  ref={clipPicker}
-                  type="file"
-                  accept="video/*"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files || []);
-                    e.target.value = "";
-                    if (files.length) addClips(files);
-                  }}
-                />
-              </>
-            ) : (
-              <>
-            <h3>Notes on the video</h3>
-            <div className="row">
-              <input
-                value={noteText}
-                placeholder={`Note at ${fmt(tOut)} — e.g. captions bigger here`}
-                onChange={(e) => setNoteText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && noteText.trim()) {
-                    setNotes((n) => [...n, { t: wholeReel ? (null as any) : tOut, text: noteText.trim() }].sort((a, b) => (a.t ?? -1) - (b.t ?? -1)));
-                    setNoteText("");
-                  }
-                }}
-              />
-            </div>
-            <label className="toggle">
-              <input type="checkbox" checked={wholeReel} onChange={(e) => setWholeReel(e.target.checked)} />
-              <span>Note is about the whole reel</span>
-            </label>
-            <ul className="list notes">
-              {notes.map((n, i) => (
-                <li key={i}>
-                  {n.t === null || n.t === undefined ? (
-                    <span className="tag-inline">all</span>
-                  ) : (
-                    <button className="link" onClick={() => seekOut(n.t)}>
-                      {fmt(n.t)}
-                    </button>
-                  )}
-                  <span>{n.text}</span>
-                  <button className="x" onClick={() => setNotes((ns) => ns.filter((_, j) => j !== i))}>
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <button className="primary" disabled={(!notes.length && !(cloud && !hasModel)) || job?.status === "running"} onClick={() => sendNotes()}>
-              {cloud && !hasModel ? "Connect your AI model to send notes" : `Send ${notes.length || ""} note${notes.length === 1 ? "" : "s"} to ${cloud ? "your AI" : "Claude"}`}
-            </button>
-            {aiReply ? <div className="aireply">{aiReply}</div> : null}
-              </>
-            )}
-            {job?.kind === "notes" ? (
-              <div className="joblog">
-                {job.log.slice(-8).map((l, i) => (
-                  <div key={i}>{l}</div>
-                ))}
-              </div>
-            ) : null}
-
-            <h3>
-              Transcript <small>edit the reel by editing text</small>
-            </h3>
-            <div className="modes">
-              {(["seek", "cut", "emphasis", "edit"] as const).map((m) => (
-                <button key={m} className={mode === m ? "on" : ""} onClick={() => setMode(m)}>
-                  {m === "seek" ? "Jump" : m === "cut" ? "Cut" : m === "emphasis" ? "Punch word" : "Fix spelling"}
+            <div className="s-tabs" role="tablist" aria-label="Inspector">
+              {(["Properties", "Transcript", "Notes"] as const).map((x) => (
+                <button key={x} role="tab" aria-selected={side === x} className={side === x ? "on" : ""} onClick={() => setSide(x)}>
+                  {x}
+                  {x === "Notes" && notes.length ? ` (${notes.length})` : ""}
                 </button>
               ))}
             </div>
-            <small className="hint">Option-click cuts, Shift-click punches, in any mode.</small>
-            <div className="transcript">
-              {spec.words.map((w, i) => (
-                <span
-                  key={i}
-                  className={`w ${w.cut ? "cut" : ""} ${w.emphasis ? "em" : ""} ${activeWord === i ? "active" : ""}`}
-                  title={`${w.start.toFixed(2)}s${(w as any).cutReason ? ` · ${(w as any).cutReason}` : ""}`}
-                  onClick={(e) => onWord(i, e)}
-                >
-                  {w.text}
-                  {w.emoji ? <sup>{w.emoji}</sup> : null}{" "}
-                </span>
-              ))}
-            </div>
+            {/* the timeline draws the selected item's properties in here; it stays mounted so they keep their place */}
+            <div ref={setInspector} hidden={side !== "Properties"} />
+            {side === "Properties" && !hasSel ? (
+              <ProjectCard
+                shapes={aspects}
+                native={nativeShape}
+                onShape={(id) => setAspects((x) => toggleShape(x, id))}
+                length={fmt(duration)}
+                shots={spec.segments.length}
+                cut={spec.words.filter((w) => w.cut).length}
+                onAdd={(what) => {
+                  if (what === "text") openTab("Titles");
+                  else if (what === "music") openTab("Audio");
+                  else if (what === "captions") openTab("Captions");
+                  else if (what === "broll") openTab("B-roll");
+                  else if (what === "voice") voiceover();
+                  else clipPicker.current?.click();
+                }}
+              />
+            ) : null}
+            {side === "Notes" ? (
+              <>
+                <h3>Notes on the video</h3>
+                <p className="hint">Type in the Ask bar under the preview. Pin a note to a moment, or press Ask to send everything to {cloud ? "your AI" : "Claude"}.</p>
+                <ul className="list notes">
+                  {notes.map((n, i) => (
+                    <li key={i}>
+                      {n.t === null || n.t === undefined ? (
+                        <span className="tag-inline">all</span>
+                      ) : (
+                        <button className="link" onClick={() => seekOut(n.t)}>
+                          {fmt(n.t)}
+                        </button>
+                      )}
+                      <span>{n.text}</span>
+                      <button className="x" aria-label="Remove note" onClick={() => setNotes((ns) => ns.filter((_, j) => j !== i))}>
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {aiReply ? <div className="aireply">{aiReply}</div> : null}
+                {job?.kind === "notes" ? (
+                  <div className="joblog">
+                    {job.log.slice(-8).map((l, i) => (
+                      <div key={i}>{l}</div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+            {side === "Transcript" ? (
+              <>
+                <h3>
+                  Transcript <small>edit the video by editing text</small>
+                </h3>
+                {spec.words.length ? (
+                  <>
+                    <div className="modes">
+                      {(["seek", "cut", "emphasis", "edit"] as const).map((m) => (
+                        <button key={m} className={mode === m ? "on" : ""} onClick={() => setMode(m)}>
+                          {m === "seek" ? "Jump" : m === "cut" ? "Cut" : m === "emphasis" ? "Punch word" : "Fix spelling"}
+                        </button>
+                      ))}
+                    </div>
+                    <small className="hint">Option-click cuts, Shift-click punches, in any mode.</small>
+                    <div className="transcript">
+                      {spec.words.map((w, i) => (
+                        <span
+                          key={i}
+                          className={`w ${w.cut ? "cut" : ""} ${w.emphasis ? "em" : ""} ${activeWord === i ? "active" : ""}`}
+                          title={`${w.start.toFixed(2)}s${(w as any).cutReason ? ` · ${(w as any).cutReason}` : ""}`}
+                          onClick={(e) => onWord(i, e)}
+                        >
+                          {w.text}
+                          {w.emoji ? <sup>{w.emoji}</sup> : null}{" "}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="hint">No speech was found in this footage, so there is nothing to edit by text. Cut it on the timeline instead.</p>
+                )}
+              </>
+            ) : null}
           </aside>
         </main>
       )}
