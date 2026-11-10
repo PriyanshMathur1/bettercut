@@ -85,6 +85,12 @@ const DEFAULT_OVERLAY: Record<string, Partial<ReelOverlay>> = {
   tierList: { tiers: [{ label: "S", items: ["Best"] }, { label: "A", items: ["Great"] }, { label: "B", items: ["Okay"] }] },
   splitHeadline: { text: "Before", subtitle: "after" },
   postCard: { text: "Something worth saying in a post." },
+  donut: { value: 68, text: "Finish the video", subtitle: "of viewers" },
+  bars: { text: "Where views come from", items: ["Reels: 62", "Explore: 24", "Profile: 9", "Shares: 5"] },
+  metrics: { text: "In 30 days", items: ["+38% Watch time", "12.4k Followers", "3.1x Shares"] },
+  chapter: { value: 1, text: "The setup", subtitle: "What you need before you start" },
+  gradientWord: { text: "Game changer" },
+  compare: { text: "Editing time", items: ["Before: 2 hrs", "After: 10 min"] },
 };
 
 const CAMERA_PROFILES: [string, string][] = [
@@ -672,8 +678,18 @@ const OverlaysPanel: React.FC<{ spec: ReelSpec; update: Update; catalog: Catalog
             <Field label="Subtitle">
               <input value={o.subtitle || ""} onChange={(e) => setO(i, { subtitle: e.target.value })} />
             </Field>
-            {["checklist", "numberedList", "progressSteps", "poll"].includes(o.kind) ? (
-              <Field label="Items (one per line)">
+            {["checklist", "numberedList", "progressSteps", "poll", "bars", "metrics", "compare"].includes(o.kind) ? (
+              <Field
+                label={
+                  o.kind === "bars"
+                    ? "Bars (one per line, like Reels: 62)"
+                    : o.kind === "metrics"
+                      ? "Numbers (one per line, like +38% Watch time)"
+                      : o.kind === "compare"
+                        ? "Before and after (two lines, like Before: 2 hrs)"
+                        : "Items (one per line)"
+                }
+              >
                 <textarea value={(o.items || []).join("\n")} onChange={(e) => setO(i, { items: e.target.value.split("\n") })} />
               </Field>
             ) : null}
@@ -695,6 +711,11 @@ const OverlaysPanel: React.FC<{ spec: ReelSpec; update: Update; catalog: Catalog
             {o.kind === "emoji" || o.kind === "notification" || o.kind === "sticker" ? (
               <Field label="Emoji">
                 <input value={o.emoji || ""} onChange={(e) => setO(i, { emoji: e.target.value })} />
+              </Field>
+            ) : null}
+            {o.kind === "donut" || o.kind === "chapter" ? (
+              <Field label={o.kind === "donut" ? "Percent" : "Chapter number"}>
+                <input type="number" value={o.value ?? 0} onChange={(e) => setO(i, { value: parseFloat(e.target.value) || 0 })} />
               </Field>
             ) : null}
             {o.kind === "counter" ? (

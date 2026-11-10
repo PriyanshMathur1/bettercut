@@ -25,6 +25,7 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **Media layers.** Put extra video, images and sound on their own tracks above the footage. Place, size, turn, fade and keyframe each one, and change which is in front.
 - **Effects stack.** Stack effects on any shot or layer and set each one's strength: blur, black & white, glow, colour fringing, duotone, film grain, vignette and more. They apply in order.
 - **One-click animation.** Make a layer or overlay fade, slide, zoom, pop or spin in and out, or pulse, float and sway, with one choice. Each preset writes ordinary keyframes you can fine-tune.
+- **Motion cards.** Animated donut and bar charts, a row of big numbers, a before-and-after, chapter markers and a gradient title, filled in with plain lines like "Followers: 12.4k". Numbers count up and keep their $, % or k.
 - **Add clips later.** Append more footage to a reel you have already edited; only the new clips are transcribed.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.

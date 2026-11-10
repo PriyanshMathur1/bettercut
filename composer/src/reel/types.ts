@@ -118,7 +118,14 @@ export type OverlayKind =
   | "tierList"
   | "splitHeadline"
   | "progressSteps"
-  | "postCard";
+  | "postCard"
+  // motion cards: animated charts, stats and titles
+  | "donut"
+  | "bars"
+  | "metrics"
+  | "chapter"
+  | "gradientWord"
+  | "compare";
 
 export interface ReelOverlay {
   id?: string;
