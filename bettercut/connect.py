@@ -445,6 +445,7 @@ def bridge(port: int) -> int:
 def client_config(port: int) -> dict:
     """What to paste into Claude Desktop and run for Claude Code, with this computer's paths filled in."""
     import os
+    import shlex
     import shutil
     import sys
 
@@ -458,5 +459,6 @@ def client_config(port: int) -> dict:
     return {
         "claude_desktop": {"mcpServers": {"bettercut": {"command": sys.executable, "args": args, "env": env}}},
         "claude_code": f"claude mcp add --transport http bettercut http://127.0.0.1:{port}/mcp",
-        "claude_code_stdio": "claude mcp add bettercut " + " ".join(f"-e {k}={v!r}" for k, v in env.items()) + f" -- {sys.executable} " + " ".join(args),
+        # every part shell-quoted: folder names often have spaces (and & in them)
+        "claude_code_stdio": shlex.join(["claude", "mcp", "add", "bettercut", *[x for k, v in env.items() for x in ("-e", f"{k}={v}")], "--", sys.executable, *args]),
     }

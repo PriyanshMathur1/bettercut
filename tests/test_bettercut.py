@@ -1096,6 +1096,12 @@ def test_claude_setup_lists_paths_for_both_apps():
     desk = cfg["claude_desktop"]["mcpServers"]["bettercut"]
     assert desk["args"][:3] == ["-m", "bettercut", "mcp"] and "PYTHONPATH" in desk["env"]
     assert cfg["claude_code"] == "claude mcp add --transport http bettercut http://127.0.0.1:4790/mcp"
+    import shlex
+    import sys
+
+    parts = shlex.split(cfg["claude_code_stdio"])  # pastes into a shell as one command, even with spaces and & in paths
+    assert parts[:4] == ["claude", "mcp", "add", "bettercut"] and parts[parts.index("--") + 1] == sys.executable
+    assert parts[-4:] == ["bettercut", "mcp", "--port", "4790"] and any(p.startswith("PYTHONPATH=") for p in parts)
 
 
 # ---- pipeline mode ----
