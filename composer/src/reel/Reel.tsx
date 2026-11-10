@@ -7,6 +7,7 @@ import {
   cutTimes,
   outputWords,
   placeSegments,
+  cutList,
   progress,
   rangeToOutput,
   snapToOutput,
@@ -149,10 +150,16 @@ export const Reel: React.FC<ReelProps> = (spec) => {
     if (cam && cam.family === "camera") fxList.push(cam.fn(progress(t, seg.outStart, seg.outEnd), 1));
   }
   const tr = EFFECT_MAP[spec.motion?.cutTransition || ""];
-  if (tr) {
-    for (const c of cuts) {
-      if (Math.abs(t - c) < tr.duration / 2) fxList.push(tr.fn(progress(t, c - tr.duration / 2, c + tr.duration / 2), 1));
-    }
+  // each cut plays its own transition when the shot has one, else the reel's default
+  const cutFx = useMemo(
+    () =>
+      cutList(placed)
+        .map((c) => ({ at: c.at, def: c.transition === undefined ? tr : EFFECT_MAP[c.transition] }))
+        .filter((c): c is { at: number; def: NonNullable<typeof tr> } => !!c.def && c.def.family === "transition"),
+    [placed, tr],
+  );
+  for (const c of cutFx) {
+    if (Math.abs(t - c.at) < c.def.duration / 2) fxList.push(c.def.fn(progress(t, c.at - c.def.duration / 2, c.at + c.def.duration / 2), 1));
   }
   if (spec.motion?.beatPulse && spec.audio?.beats?.length) {
     const pulse = EFFECT_MAP["heartbeat"];
@@ -248,7 +255,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
     if (!a?.sfx) return [] as { at: number; sound: string; volume: number }[];
     const list: { at: number; sound: string; volume: number }[] = [];
     const base = a.sfxVolume ?? 0.5;
-    if (tr) for (const c of cuts) list.push({ at: Math.max(0, c - 0.12), sound: /flash|whip|zoom|spin/.test(tr.id) ? "whoosh" : /glitch|rgb|vhs/.test(tr.id) ? "glitch" : /shutter|iris|barn/.test(tr.id) ? "shutter" : "swish", volume: base * 0.6 });
+    for (const c of cutFx) list.push({ at: Math.max(0, c.at - 0.12), sound: /flash|whip|zoom|spin/.test(c.def.id) ? "whoosh" : /glitch|rgb|vhs/.test(c.def.id) ? "glitch" : /shutter|iris|barn/.test(c.def.id) ? "shutter" : "swish", volume: base * 0.6 });
     for (const { o, r } of overlays) {
       const s = o.sfx === false ? undefined : o.sfx || DEFAULT_SFX_FOR[o.kind];
       if (s) list.push({ at: r.start, sound: s, volume: base });
@@ -260,7 +267,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
       if (at !== null) list.push({ at, sound: ev.sound, volume: ev.volume ?? base });
     }
     return list;
-  }, [spec.audio, cuts, overlays, spec.hook?.text, spec.endCard?.enabled, body, tr, placed]);
+  }, [spec.audio, cutFx, overlays, spec.hook?.text, spec.endCard?.enabled, body, placed]);
 
   const captionSettings = { ...spec.captions, position: spec.captions?.position || layout.captionY || "lower" };
   const behind = !!(spec.captions?.behindHead && hasMatte);

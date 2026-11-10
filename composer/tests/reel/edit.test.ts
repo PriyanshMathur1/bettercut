@@ -1,8 +1,8 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { baseOf, freezeAt, MIN_SHOT, moveShot, patchShot, rampShot, removeShot, shotAt, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit.ts";
-import { cutTimes, outputWords, placeSegments, rangeToOutput, snapToOutput, toSource, totalOutDuration } from "../../src/reel/timeline.ts";
+import { baseOf, freezeAt, MIN_SHOT, MIN_SPAN, moveShot, patchShot, placeSpan, rampShot, removeShot, shotAt, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit.ts";
+import { cutList, cutTimes, outputWords, placeSegments, rangeToOutput, snapToOutput, toSource, totalOutDuration } from "../../src/reel/timeline.ts";
 
 const shots = () => [
   { id: "s1", start: 0, end: 4, zoom: 1.2 },
@@ -100,4 +100,27 @@ test("rampShot turns a shot into seamless speed steps that cover the same footag
   assert.deepEqual(placed.slice(0, 5).map((p) => p.shot), [0, 0, 0, 0, 0]); // one visual shot: no punch-in flicker
   assert.deepEqual(cutTimes(placed).length, 1);
   assert.deepEqual(rampShot([{ id: "x", start: 0, end: 0.5 }], 0, "speed-up"), [{ id: "x", start: 0, end: 0.5 }]); // too short
+});
+
+test("each cut carries its own transition; text-cut pieces and joins do not", () => {
+  const segs = [
+    { id: "a", start: 0, end: 4 },
+    { id: "b", start: 5, end: 9, transition: "whip-left" },
+    { id: "c", start: 9, end: 10, join: true, transition: "glitch" },
+    { id: "d", start: 11, end: 12, transition: "none" },
+  ];
+  const words = [{ text: "x", start: 6, end: 6.5, cut: true }, { text: "y", start: 7, end: 7.5 }];
+  const cuts = cutList(placeSegments({ segments: segs, words }));
+  // into b (its own), inside b after the text cut (default), into d (none); the join into c is no cut
+  assert.deepEqual(cuts.map((c) => c.transition), ["whip-left", undefined, "none"]);
+});
+
+test("placeSpan moves and resizes an overlay inside the footage", () => {
+  const o = { kind: "keyword", start: 2, end: 4 };
+  assert.deepEqual(placeSpan(o, "move", 5, 10), { kind: "keyword", start: 5, end: 7 });
+  assert.deepEqual(placeSpan(o, "move", 9.5, 10), { kind: "keyword", start: 8, end: 10 }); // keeps its length
+  assert.equal(placeSpan(o, "move", -3, 10).start, 0);
+  assert.equal(placeSpan(o, "start", 3.95, 10).start, 4 - MIN_SPAN);
+  assert.equal(placeSpan(o, "end", 99, 10).end, 10);
+  assert.equal(placeSpan(o, "end", 0, 10).end, 2 + MIN_SPAN);
 });

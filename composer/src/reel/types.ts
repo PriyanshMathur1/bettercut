@@ -32,6 +32,8 @@ export interface ReelSegment {
   speed?: number;
   /** Freeze frame: hold this shot's last frame for this many seconds. */
   hold?: number;
+  /** Transition into this shot (an effect id, or "none"). Unset = the reel's default cut transition. */
+  transition?: string;
   /** Continues the previous shot seamlessly (a speed-ramp step): no cut transition, sound or punch-in change. */
   join?: boolean;
   /** Per-shot colour override (baked by the pipeline). */

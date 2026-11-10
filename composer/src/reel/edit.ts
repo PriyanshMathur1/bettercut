@@ -145,3 +145,20 @@ export function rampShot(segments: ReelSegment[], i: number, ramp: string): Reel
   list.splice(i, 1, ...steps);
   return list;
 }
+
+export const MIN_SPAN = 0.2;
+
+/**
+ * Move or resize something that sits on the timeline (an overlay, a b-roll clip). `start`/`end` are the
+ * new SOURCE times the editor asks for; the result is kept inside the footage and at least MIN_SPAN long.
+ * A move keeps the length; a resize moves one edge only.
+ */
+export function placeSpan<T extends { start: number; end: number }>(item: T, how: "move" | "start" | "end", t: number, duration: number): T {
+  const len = item.end - item.start;
+  if (how === "move") {
+    const start = Math.min(Math.max(0, t), Math.max(0, duration - len));
+    return { ...item, start: round(start), end: round(start + len) };
+  }
+  if (how === "start") return { ...item, start: round(Math.min(Math.max(0, t), item.end - MIN_SPAN)) };
+  return { ...item, end: round(Math.max(Math.min(duration, t), item.start + MIN_SPAN)) };
+}

@@ -66,6 +66,7 @@ export function subtractSpans<T extends Span & { id?: string }>(segments: T[], c
           // a freeze frame belongs to the end of the shot, a seamless join to its start
           ...("hold" in seg && i < pieces.length - 1 ? { hold: undefined } : {}),
           ...("join" in seg && i > 0 ? { join: undefined } : {}),
+          ...("transition" in seg && i > 0 ? { transition: undefined } : {}),
         } as T),
       );
   }
@@ -231,6 +232,14 @@ export function buildPages(words: OutWord[], wordsPerPage: number, maxChars = 26
 /** Output times of every cut (start of each segment after the first). */
 export function cutTimes(placed: PlacedSegment[]): number[] {
   return placed.slice(1).filter((s) => !s.join).map((s) => s.outStart);
+}
+
+/** Every cut with the transition chosen for it (undefined = use the reel's default). */
+export function cutList(placed: PlacedSegment[]): { at: number; transition?: string }[] {
+  return placed
+    .slice(1)
+    .filter((s) => !s.join)
+    .map((s) => ({ at: s.outStart, transition: s.transition }));
 }
 
 /** 0..1 progress of `t` through [start, end], clamped. */

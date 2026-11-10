@@ -42,6 +42,7 @@ def subtract_spans(segments: list[dict], cuts: list[dict]) -> list[dict]:
                 piece.pop("hold", None)  # a freeze frame belongs to the end of the shot
             if i > 0:
                 piece.pop("join", None)  # a seamless join belongs to its start
+                piece.pop("transition", None)  # so does the transition into the shot
             out.append(piece)
     return out
 

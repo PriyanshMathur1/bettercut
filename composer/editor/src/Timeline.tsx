@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
-import { baseOf, freezeAt, moveShot, patchShot, rampShot, removeShot, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit";
+import { baseOf, freezeAt, moveShot, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit";
+import { effectsByFamily } from "../../src/reel/motion/effects";
+
+const TRANSITIONS = effectsByFamily("transition");
+type Extra = { kind: "overlays" | "broll"; i: number };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -24,6 +28,7 @@ export const Timeline: React.FC<{
 }> = ({ spec, placed, duration, t, notes, onSeek, update }) => {
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
+  const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
   const lane = useRef<HTMLDivElement>(null);
 
   const shots = spec.segments;
@@ -32,8 +37,9 @@ export const Timeline: React.FC<{
   const pieces = placed.map((p) => ({ p, base: baseOf(shots, p) }));
   const selected = sel !== null && shots[sel] ? shots[sel] : null;
   const mine = pieces.filter((x) => x.base === sel);
-  const overlays = spec.overlays.map((o) => ({ o, r: rangeToOutput(placed, o.start, o.end) })).filter((x) => x.r) as { o: ReelSpec["overlays"][number]; r: { start: number; end: number } }[];
-  const broll = spec.broll.map((b) => ({ b, r: rangeToOutput(placed, b.start, b.end) })).filter((x) => x.r) as { b: ReelSpec["broll"][number]; r: { start: number; end: number } }[];
+  const overlays = spec.overlays.map((o, i) => ({ o, i, r: rangeToOutput(placed, o.start, o.end) })).filter((x) => x.r) as { o: ReelSpec["overlays"][number]; i: number; r: { start: number; end: number } }[];
+  const broll = spec.broll.map((b, i) => ({ b, i, r: rangeToOutput(placed, b.start, b.end) })).filter((x) => x.r) as { b: ReelSpec["broll"][number]; i: number; r: { start: number; end: number } }[];
+  const extraItem = extra ? (spec[extra.kind] as { start: number; end: number }[])[extra.i] : null;
 
   const canSplit = t < body - 0.01;
   const split = () => {
@@ -43,6 +49,12 @@ export const Timeline: React.FC<{
     setSel(null);
   };
   const remove = () => {
+    if (extra && extraItem) {
+      const { kind, i } = extra;
+      update((s) => ({ ...s, [kind]: (s[kind] as unknown[]).filter((_, j) => j !== i) }));
+      setExtra(null);
+      return;
+    }
     if (sel === null || shots.length <= 1) return;
     update((s) => ({ ...s, segments: removeShot(s.segments, sel) }));
     setSel(null);
@@ -70,7 +82,10 @@ export const Timeline: React.FC<{
       if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "s" || e.key === "S") keys.current.split();
       else if (e.key === "Delete" || e.key === "Backspace") keys.current.remove();
-      else if (e.key === "Escape") setSel(null);
+      else if (e.key === "Escape") {
+        setSel(null);
+        setExtra(null);
+      }
       else return;
       e.preventDefault();
     };
@@ -116,6 +131,31 @@ export const Timeline: React.FC<{
     window.addEventListener("pointerup", up);
   };
 
+  /** Drag an overlay or b-roll clip: its middle moves it, its edges resize it. */
+  const dragExtra = (kind: Extra["kind"], i: number, r: { start: number; end: number }) => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setExtra({ kind, i });
+    setSel(null);
+    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const how = e.clientX - box.left < 7 ? "start" : box.right - e.clientX < 7 ? "end" : "move";
+    const perPx = duration / lane.current!.getBoundingClientRect().width; // output seconds per pixel
+    const x0 = e.clientX;
+    const move = (ev: PointerEvent) => {
+      const d = (ev.clientX - x0) * perPx;
+      if (Math.abs(ev.clientX - x0) < 3) return; // a click, not a drag
+      const out = Math.min(body - 0.01, Math.max(0, (how === "end" ? r.end : r.start) + d));
+      const at = toSource(placed, out);
+      update((s) => ({ ...s, [kind]: (s[kind] as { start: number; end: number }[]).map((x, j) => (j === i ? placeSpan(x, how, at, s.source.duration) : x)) }));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const step = tickStep(duration, zoom);
   const ticks = Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
 
@@ -125,8 +165,8 @@ export const Timeline: React.FC<{
         <button onClick={split} disabled={!canSplit} title="Cut the shot at the playhead (S)">
           Split
         </button>
-        <button onClick={remove} disabled={sel === null || shots.length <= 1} title="Remove the selected shot (Delete)">
-          Delete shot
+        <button onClick={remove} disabled={extraItem ? false : sel === null || shots.length <= 1} title={extraItem ? "Remove the selected overlay (Delete)" : "Remove the selected shot (Delete)"}>
+          {extraItem ? "Delete overlay" : "Delete shot"}
         </button>
         <button onClick={freeze} disabled={!canSplit} title="Hold the picture at the playhead for one second">
           Freeze 1s
@@ -155,6 +195,23 @@ export const Timeline: React.FC<{
                 ))}
               </select>
             </label>
+            {sel! > 0 && !selected.join ? (
+              <label title="How the reel moves from the previous shot into this one">
+                Transition
+                <select
+                  value={selected.transition ?? ""}
+                  onChange={(e) => update((s) => ({ ...s, segments: patchShot(s.segments, sel!, { transition: e.target.value || undefined }) }))}
+                >
+                  <option value="">Reel default</option>
+                  <option value="none">None (hard cut)</option>
+                  {TRANSITIONS.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label title="Change speed gradually across this shot">
               Ramp
               <select
@@ -196,6 +253,8 @@ export const Timeline: React.FC<{
               Shot {sel! + 1} of {shots.length} · {(selected.end - selected.start) / speedOf(selected) + (selected.hold || 0) < 10 ? ((selected.end - selected.start) / speedOf(selected) + (selected.hold || 0)).toFixed(1) : Math.round((selected.end - selected.start) / speedOf(selected) + (selected.hold || 0))}s
             </span>
           </>
+        ) : extraItem ? (
+          <span className="tl-info">Drag to move · drag an edge to resize</span>
         ) : (
           <span className="tl-info">Click a shot to select it</span>
         )}
@@ -229,6 +288,7 @@ export const Timeline: React.FC<{
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   setSel(base);
+                  setExtra(null);
                   onSeek(outAt(e.clientX));
                 }}
               >
@@ -245,13 +305,25 @@ export const Timeline: React.FC<{
             ) : null}
           </div>
           <div className="tl-track extras">
-            {overlays.map(({ o, r }, i) => (
-              <div key={i} className="ov" style={{ left: pct(r.start), width: pct(r.end - r.start) }} title={o.kind}>
+            {overlays.map(({ o, i, r }) => (
+              <div
+                key={i}
+                className={`ov ${extra?.kind === "overlays" && extra.i === i ? "sel" : ""}`}
+                style={{ left: pct(r.start), width: pct(r.end - r.start) }}
+                title={`${o.kind}${o.text ? `: ${o.text}` : ""}`}
+                onPointerDown={dragExtra("overlays", i, r)}
+              >
                 {o.kind}
               </div>
             ))}
-            {broll.map(({ b, r }, i) => (
-              <div key={`b${i}`} className="ov broll" style={{ left: pct(r.start), width: pct(r.end - r.start) }} title={b.src}>
+            {broll.map(({ b, i, r }) => (
+              <div
+                key={`b${i}`}
+                className={`ov broll ${extra?.kind === "broll" && extra.i === i ? "sel" : ""}`}
+                style={{ left: pct(r.start), width: pct(r.end - r.start) }}
+                title="B-roll"
+                onPointerDown={dragExtra("broll", i, r)}
+              >
                 b-roll
               </div>
             ))}
