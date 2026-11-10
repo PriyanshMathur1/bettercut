@@ -167,3 +167,78 @@ export function placeSpan<T extends { start: number; end: number }>(item: T, how
 export function splitMany(segments: ReelSegment[], times: number[]): ReelSegment[] {
   return [...times].sort((a, b) => a - b).reduce((list, t) => splitAt(list, t), [...segments]);
 }
+
+// ---- clips: the pieces of footage a project was built from, placed like separate items ----
+
+/** A clip in the media bin: a stretch of the footage, in SOURCE seconds. */
+export interface ClipSpan {
+  start: number;
+  end: number;
+}
+
+/**
+ * Where a drop lands in the playing order: the number of shots whose middle is before `out`.
+ * `spans` are the shots' places on the output timeline, in playing order.
+ */
+export function insertIndex(spans: { start: number; end: number }[], out: number): number {
+  return spans.filter((s) => (s.start + s.end) / 2 < out).length;
+}
+
+/** Move shot `i` so it plays just before the shot now at `before` (`before` = the list length puts it last). */
+export function moveBefore(segments: ReelSegment[], i: number, before: number): ReelSegment[] {
+  if (before === i || before === i + 1) return [...segments]; // dropped where it already is
+  return moveShot(segments, i, before > i ? before - 1 : before);
+}
+
+/** The clip that source time `t` belongs to, or -1. */
+export function clipAt(clips: readonly ClipSpan[], t: number): number {
+  return clips.findIndex((c) => t >= c.start - 1e-6 && t < c.end - 1e-6);
+}
+
+/**
+ * Put a whole clip on the footage track so it plays just before the shot now at `before`.
+ *
+ * Shots never overlap in the footage, so a clip is on the track at most once. Its shots that are already
+ * there move to the new place (keeping their edits and their order); any part of the clip that was
+ * removed comes back as a new shot. Words cut in the text editor stay cut.
+ */
+export function placeClip(segments: ReelSegment[], clip: ClipSpan, before: number): ReelSegment[] {
+  let list = [...segments];
+  let at = Math.min(list.length, Math.max(0, before));
+  // a shot that runs across the clip's edge is cut there, so only the clip's own footage moves
+  for (const edge of [clip.start, clip.end]) {
+    const i = shotAt(list, edge);
+    const next = splitAt(list, edge);
+    if (next.length > list.length) {
+      if (i < at) at++;
+      list = next;
+    }
+  }
+  // a shot may overhang the clip by a few frames (the joined footage runs a touch longer than its clips
+  // add up to); anything shorter than the smallest shot can't be cut off, so it belongs to the clip
+  const inside = (s: ReelSegment) => s.start >= clip.start - MIN_SHOT && s.end <= clip.end + MIN_SHOT;
+  const mine = list.filter(inside);
+  // the parts of the clip no shot covers (a shot too short to cut at the edge still counts as covering)
+  const covered = list
+    .filter((s) => s.end > clip.start && s.start < clip.end)
+    .map((s) => ({ start: Math.max(s.start, clip.start), end: Math.min(s.end, clip.end) }))
+    .sort((a, b) => a.start - b.start);
+  const fresh: ReelSegment[] = [];
+  const all = [...list];
+  let t = clip.start;
+  for (const c of [...covered, { start: clip.end, end: clip.end }]) {
+    if (c.start - t >= MIN_SHOT) {
+      const shot: ReelSegment = { id: newId(all), start: round(t), end: round(c.start) };
+      fresh.push(shot);
+      all.push(shot);
+    }
+    t = Math.max(t, c.end);
+  }
+  if (!mine.length && !fresh.length) return list;
+  const group = [...mine, ...fresh].sort((a, b) => a.start - b.start);
+  group[0] = without(group[0], "join"); // it follows a different shot now: a real cut
+  const rest = list.filter((s) => !mine.includes(s));
+  const k = at - list.slice(0, at).filter((s) => mine.includes(s)).length;
+  rest.splice(Math.min(rest.length, Math.max(0, k)), 0, ...group);
+  return rest;
+}

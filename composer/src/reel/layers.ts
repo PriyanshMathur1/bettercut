@@ -137,6 +137,16 @@ export function newLayer(layers: Layer[] | undefined, src: string, kind: LayerKi
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
 /**
+ * A clip from the footage, laid over the video as a layer on a fresh top track, starting at source time
+ * `at`. It plays that clip's stretch of the footage file (`from` is where the clip begins in it) and never
+ * past the clip's end. It fills the frame like a cutaway; resize it in the inspector.
+ */
+export function clipLayer(layers: Layer[] | undefined, src: string, clip: { start: number; seconds: number }, at: number): Layer {
+  const layer = newLayer(layers, src, "video", at, clip.seconds);
+  return { ...layer, from: r3(clip.start), media: r3(clip.start + clip.seconds), scale: 1 };
+}
+
+/**
  * Trim a layer's start the way an editor does: the layer now begins at `start` (SOURCE seconds of the
  * footage) and its own file is entered at `from` seconds, so the media keeps its place instead of
  * restarting. The caller works out `from`, because only it knows how much time on screen the trim removed

@@ -656,6 +656,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               busy={job?.status === "running"}
               inspector={inspector}
               onSelection={setHasSel}
+              clips={clips}
             />
             {issues.length ? (
               <div className="issues">

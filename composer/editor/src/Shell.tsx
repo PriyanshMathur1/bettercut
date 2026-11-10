@@ -1,7 +1,7 @@
 // Pieces of the editor's shell: the icon rail, the media bin, the transport bar, the Ask AI bar,
 // the Project card and the Export menu. The rules behind them live in workspace.ts.
 import React, { useEffect, useRef, useState } from "react";
-import { fmtClock, timecode, type BinItem, type RailGroup, type RailIcon } from "./workspace";
+import { CLIP_DRAG, fmtClock, timecode, type BinItem, type RailGroup, type RailIcon } from "./workspace";
 
 const PATHS: Record<RailIcon, React.ReactNode> = {
   looks: <path d="M12 3l2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7z" />,
@@ -124,6 +124,44 @@ export const MediaBin: React.FC<{
   onRecord: () => void;
   busy: boolean;
 }> = ({ items, url, placeOf, onGo, onAddClips, onAddMedia, onRecord, busy }) => {
+  const dragged = useRef(false); // a drag just ended on this item: the click that follows isn't a click
+  /**
+   * Drag a clip out of the bin. Done with pointer events, not the browser's own drag and drop, so it
+   * behaves the same with a mouse, a pen and a finger. The timeline listens for CLIP_DRAG.
+   */
+  const dragClip = (item: BinItem, e: React.PointerEvent) => {
+    if (item.kind !== "clip" || item.start === null || e.button !== 0) return;
+    const clip = { start: item.start, seconds: item.seconds };
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let ghost: HTMLElement | null = null;
+    const send = (phase: "move" | "drop", ev: PointerEvent) => window.dispatchEvent(new CustomEvent(CLIP_DRAG, { detail: { phase, clip, x: ev.clientX, y: ev.clientY } }));
+    const move = (ev: PointerEvent) => {
+      if (!ghost) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return; // a click, not a drag
+        ghost = document.createElement("div");
+        ghost.className = "s-ghost";
+        ghost.textContent = item.name;
+        document.body.appendChild(ghost);
+      }
+      ghost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 12}px)`;
+      send("move", ev);
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (!ghost) return;
+      ghost.remove();
+      dragged.current = true;
+      window.setTimeout(() => (dragged.current = false), 0);
+      if (ev.type === "pointerup") send("drop", ev);
+      else window.dispatchEvent(new CustomEvent(CLIP_DRAG, { detail: { phase: "move", clip, x: -1, y: -1 } })); // cancelled: clear the marker
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
   const [filter, setFilter] = useState<"all" | "video" | "audio" | "image">("all");
   const [q, setQ] = useState("");
   const group = (k: BinItem["kind"]) => (k === "clip" || k === "video" ? "video" : k === "image" ? "image" : "audio");
@@ -154,7 +192,25 @@ export const MediaBin: React.FC<{
           {shown.map((item, i) => {
             const at = placeOf(item);
             return (
-              <button key={`${item.kind}-${item.name}-${i}`} className={`s-bin-item ${at === null && item.kind !== "music" ? "off" : ""}`} disabled={at === null} onClick={() => at !== null && onGo(at)} title={at === null ? (item.kind === "music" ? "Plays under the whole video" : "This footage was cut from the video") : `${KIND_LABEL[item.kind]}: jump to it on the timeline`}>
+              <button
+                key={`${item.kind}-${item.name}-${i}`}
+                className={`s-bin-item ${at === null && item.kind !== "music" ? "off" : ""}`}
+                aria-disabled={at === null}
+                data-drag={item.kind === "clip" ? "" : undefined}
+                onPointerDown={(e) => dragClip(item, e)}
+                onClick={() => (dragged.current ? (dragged.current = false) : at !== null && onGo(at))}
+                title={
+                  item.kind === "clip"
+                    ? at === null
+                      ? "Not in the video. Drag it onto the timeline to bring it back."
+                      : "Click to jump to it. Drag onto the footage track to move it, or above it to lay it over the video."
+                    : item.kind === "music"
+                      ? "Plays under the whole video"
+                      : at === null
+                        ? "This sits over footage that was cut from the video"
+                        : `${KIND_LABEL[item.kind]}: jump to it on the timeline`
+                }
+              >
                 <span className="s-bin-thumb">
                   <Thumb item={item} url={url} />
                   {item.seconds ? <em>{len(item.seconds)}</em> : null}

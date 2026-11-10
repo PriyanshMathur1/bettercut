@@ -83,8 +83,8 @@ def make(
     words = enrich.pick_emphasis(words, keywords=names)
     words = enrich.attach_emoji(words)
     segments = autocut.build_segments(words, info["duration"], max_gap=max_gap, silences=sil)
-    if silent:  # a reel with no voice (b-roll, music, screen recording): nothing to cut on, so keep all of it
-        segments = [{"id": "s1", "start": 0.0, "end": round(info["duration"], 3)}]
+    if silent:  # no voice (b-roll, music, screen recording): nothing to cut on, so keep all of it, one shot per clip
+        segments = whole_clip_shots(clip_list(project), info["duration"])
     if reframe:
         from . import vision
 
@@ -211,6 +211,15 @@ def clip_list(project: Path) -> list[dict]:
     except (ValueError, AttributeError):
         return []
     return [{"name": c.get("clip") or Path(str(c.get("path", "clip"))).name, "start": float(c.get("start", 0)), "seconds": float(c.get("duration", 0))} for c in clips]
+
+
+def whole_clip_shots(clips: list[dict], duration: float) -> list[dict]:
+    """Shots for footage with no speech: one per clip, so each clip can be moved, trimmed or removed on its own."""
+    spans = [(round(c["start"], 3), round(min(duration, c["start"] + c["seconds"]), 3)) for c in clips if c["seconds"] > 0 and c["start"] < duration]
+    if len(spans) < 2:
+        return [{"id": "s1", "start": 0.0, "end": round(duration, 3)}]
+    spans[-1] = (spans[-1][0], round(duration, 3))  # the last shot runs to the very end of the footage
+    return [{"id": f"s{i + 1}", "start": a, "end": b} for i, (a, b) in enumerate(spans) if b > a]
 
 
 def load(project: Path) -> dict:

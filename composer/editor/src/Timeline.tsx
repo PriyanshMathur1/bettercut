@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { CLIP_DRAG } from "./workspace";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
-import { baseOf, freezeAt, moveShot, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, splitMany, trimShot } from "../../src/reel/edit";
+import { baseOf, clipAt, freezeAt, insertIndex, moveBefore, moveShot, placeClip, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, splitMany, trimShot } from "../../src/reel/edit";
 import { beatsBetween, snapTo } from "../../src/reel/beats";
 import { effectsByFamily } from "../../src/reel/motion/effects";
 
 import { nearestKey, removeKey, sampleKeys, setKey, type Ease, type Key } from "../../src/reel/keyframes";
 import { overlayBase } from "../../src/reel/overlays";
-import { layerBase, layerVolume, moveTrack, playable, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
+import { clipLayer, layerBase, layerVolume, moveTrack, playable, tracksOf, trimLayerStart, type Layer } from "../../src/reel/layers";
 import { addFx, amountOf, CLIP_FX, DUOTONE_DEFAULT, FX_MAP, listFx, removeFx, setFx, type ClipEffect } from "../../src/reel/clipfx";
 import { snapToOutput, toOutput } from "../../src/reel/timeline";
 
@@ -225,12 +226,15 @@ export const Timeline: React.FC<{
   /** Tells the editor which layer is selected, so it can be dragged in the preview. */
   onSelectLayer?: (index: number | null) => void;
   busy?: boolean;
+  /** The clips the footage was built from, for shot names and for clips dragged in from the media bin. */
+  clips?: { name: string; start: number; seconds: number }[];
   /** Where the selected item's properties are drawn: the inspector panel on the right. */
   inspector?: HTMLElement | null;
   /** Tells the editor whether anything is selected, so the inspector can show the project instead. */
   onSelection?: (has: boolean) => void;
-}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, onSelectLayer, busy, inspector, onSelection }) => {
+}> = ({ spec, placed, duration, t, notes, onSeek, update, updateAndBake, onAddClips, onVoiceover, onAddMedia, onSelectLayer, busy, inspector, onSelection, clips = [] }) => {
   const [tool, setTool] = useState<"select" | "razor">("select");
+  const [drop, setDrop] = useState<{ out: number; row: "footage" | "layer" } | null>(null); // where a drag would land
   const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const [extra, setExtra] = useState<Extra | null>(null); // selected overlay or b-roll clip
@@ -362,6 +366,71 @@ export const Timeline: React.FC<{
   };
 
   /** Drag on the ruler or empty lane: scrub the playhead. */
+  const clipSpans = clips.map((c) => ({ start: c.start, end: c.start + c.seconds }));
+  const nameAt = (t: number) => (clips.length > 1 ? clips[clipAt(clipSpans, t + 0.01)]?.name : undefined);
+  /** Each shot's place on the output timeline, in playing order (a shot may be several pieces). */
+  const shotSpans = () =>
+    shots.map((_, i) => {
+      const ps = pieces.filter((x) => x.base === i);
+      return ps.length ? { start: ps[0].p.outStart, end: ps[ps.length - 1].p.outEnd } : { start: body, end: body };
+    });
+  /** The output time where a drop "before shot k" lands, for the marker. */
+  const edgeOf = (before: number) => shotSpans()[before]?.start ?? body;
+
+  // A clip dragged in from the media bin: onto the footage track it becomes shots, anywhere else on the
+  // timeline a layer. The bin reports the drag as window events (see CLIP_DRAG in Shell.tsx).
+  const dropAt = (x: number, y: number): { out: number; row: "footage" | "layer" } | null => {
+    if (!lane.current) return null;
+    const r = lane.current.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+    const out = outAt(x);
+    return y - r.top >= 16 && y - r.top <= 54 ? { row: "footage", out: edgeOf(insertIndex(shotSpans(), out)) } : { row: "layer", out: Math.min(out, Math.max(0, body - 0.05)) };
+  };
+  const clipDrag = (e: Event) => {
+    const { phase, clip, x, y } = (e as CustomEvent<{ phase: "move" | "drop"; clip: { start: number; seconds: number }; x: number; y: number }>).detail;
+    const d = dropAt(x, y);
+    if (phase === "move") return setDrop((old) => (d && old && old.row === d.row && Math.abs(old.out - d.out) < 0.01 ? old : d));
+    setDrop(null);
+    if (!d || typeof clip?.start !== "number" || !(clip.seconds > 0)) return;
+    if (d.row === "footage") {
+      const before = insertIndex(shotSpans(), outAt(x));
+      update((s) => ({ ...s, segments: placeClip(s.segments, { start: clip.start, end: clip.start + clip.seconds }, before) }));
+      setSel(null);
+    } else {
+      const at = toSource(placed, d.out);
+      update((s) => ({ ...s, layers: [...(s.layers || []), clipLayer(s.layers, s.source.src, clip, at)] }));
+    }
+  };
+  const clipDragRef = useRef(clipDrag);
+  clipDragRef.current = clipDrag; // the listener below always sees the current timeline
+  useEffect(() => {
+    const on = (e: Event) => clipDragRef.current(e);
+    window.addEventListener(CLIP_DRAG, on);
+    return () => window.removeEventListener(CLIP_DRAG, on);
+  }, []);
+
+  /** Drag a shot along the footage track to change the playing order. */
+  const dragShot = (base: number, e: React.PointerEvent) => {
+    const x0 = e.clientX;
+    let before: number | null = null;
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - x0) < 6) return; // a click, not a drag
+      before = insertIndex(shotSpans(), outAt(ev.clientX));
+      setDrop({ row: "footage", out: edgeOf(before) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDrop(null);
+      if (before === null || before === base || before === base + 1) return;
+      const to = before;
+      update((s) => ({ ...s, segments: moveBefore(s.segments, base, to) }));
+      setSel(to > base ? to - 1 : to);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const scrub = (e: React.PointerEvent) => {
     onSeek(onBeat(outAt(e.clientX)));
     const move = (ev: PointerEvent) => onSeek(onBeat(outAt(ev.clientX)));
@@ -816,8 +885,10 @@ export const Timeline: React.FC<{
                   setSel(base);
                   setExtra(null);
                   onSeek(outAt(e.clientX));
+                  if (shots.length > 1) dragShot(base, e);
                 }}
               >
+                {nameAt(p.start) ? <span className="nm">{nameAt(p.start)}</span> : null}
                 {speedOf(p) !== 1 || p.reverse ? (
                   <i>
                     {p.reverse ? "◀ " : ""}
@@ -894,7 +965,7 @@ export const Timeline: React.FC<{
                     title={`${l.kind === "image" ? "Image" : l.kind === "audio" ? "Sound" : "Video"} layer on track ${l.track}`}
                     onPointerDown={dragExtra("layers", i, r)}
                   >
-                    {l.kind}
+                    {(l.src === spec.source.src && nameAt(l.from ?? 0)) || l.kind}
                     {(l.keys || []).map((k) => (
                       <u key={k.at} style={{ left: `${Math.min(100, (k.at / (r.end - r.start)) * 100)}%` }} />
                     ))}
@@ -907,6 +978,7 @@ export const Timeline: React.FC<{
             .map((n, i) => (
               <div key={i} className="note-pin" style={{ left: pct(n.t) }} title={n.text} />
             ))}
+          {drop ? <div className={`tl-drop ${drop.row}`} style={{ left: pct(drop.out) }} /> : null}
           <div className="playhead" style={{ left: pct(t) }} />
         </div>
       </div>
