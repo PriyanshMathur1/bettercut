@@ -1219,3 +1219,45 @@ def test_claude_runs_a_pipeline_and_the_editor_can_approve(tmp_path, monkeypatch
 
     assert "no such reel" in _tool(c, "pipeline_status", reel="nope")[0]
     assert "pass the reel" in _tool(c, "start_pipeline", pipeline="talking-head", brief="x")[0]
+
+
+# ---- real footage: noise is not speech, scenery is kept ----
+
+def test_whisper_noise_is_not_taken_for_speech():
+    from bettercut import media
+
+    assert media.real_word("Hello") and media.real_word("आप") and media.real_word("42")
+    assert not media.real_word("ु...") and not media.real_word("...") and not media.real_word("♪")
+    talk = ["here", "are", "three", "tips"]
+    assert media.plausible(-0.3, 0.05, 1.4, talk)
+    assert not media.plausible(-0.3, 0.05, 3.1, talk)  # repeats itself
+    assert not media.plausible(-1.5, 0.1, 1.2, talk)  # very unsure
+    assert not media.plausible(-0.9, 0.7, 1.2, talk)  # unsure and probably nobody talking
+    assert not media.plausible(-0.3, 0.1, 1.2, ["ु...", "ु...", "ु...", "ok"])  # mostly marks, no letters
+    assert not media.plausible(-0.3, 0.1, 1.2, ["yeah"] * 8)  # one word over and over
+
+
+def test_scenery_clips_are_kept_whole_next_to_speech():
+    from bettercut import pipeline
+
+    clips = [{"start": 0, "seconds": 10}, {"start": 10, "seconds": 20}, {"start": 30, "seconds": 8}, {"start": 38, "seconds": 0.3}]
+    words = [{"text": "hi", "start": 2, "end": 2.4}, {"text": "um", "start": 33, "end": 33.2, "cut": True}]
+    speech = [{"id": "s1", "start": 1.9, "end": 2.6}]
+    out = pipeline.fill_quiet_clips(speech, clips, words, 38.3)
+    # clip 2 (no words) and clip 3 (only a cut filler) are kept whole; the tiny last clip is skipped
+    assert [(s["id"], s["start"], s["end"]) for s in out] == [("s1", 1.9, 2.6), ("q1", 10, 30), ("q2", 30, 38)]
+
+
+def test_clips_named_one_by_one_keep_their_order(tmp_path):
+    import os
+    import time
+
+    from bettercut import media
+
+    a, b = tmp_path / "a.mov", tmp_path / "b.mov"
+    b.write_bytes(b"x")
+    a.write_bytes(b"x")
+    os.utime(b, (time.time() - 100, time.time() - 100))  # b is older
+    assert media.find_clips([str(a), str(b)]) == [a, b]  # the order given
+    assert media.find_clips([str(tmp_path)]) == [b, a]  # a folder: oldest first
+    assert media.find_clips([str(a), str(b)], newest=1) == [a]
