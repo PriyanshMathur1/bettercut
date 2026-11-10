@@ -22,6 +22,7 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 - **Camera log footage.** Pick Apple Log, Sony S-Log3 or Panasonic V-Log and the flat picture is converted to normal colour.
 - **Green screen.** Remove a flat backdrop, with the colour found for you, and put any background behind the subject.
 - **Record in the browser.** Film yourself with a teleprompter that scrolls your script, or record a voiceover from your microphone while the reel plays. Voiceovers sit on their own track and the music ducks under them.
+- **Media layers.** Put extra video, images and sound on their own tracks above the footage. Place, size, turn, fade and keyframe each one, and change which is in front.
 - **Add clips later.** Append more footage to a reel you have already edited; only the new clips are transcribed.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.
@@ -103,7 +104,7 @@ cd composer && npm test
 
 This is a young project. What has been checked and what has not:
 
-- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 92 Python tests and 38 Node tests.
+- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 92 Python tests and 43 Node tests.
 - Not yet checked: the Docker image has not been built, hosted Google sign-in has not been run against a live Supabase
   project, and the connector has been exercised with direct calls only, not yet from Claude.ai or ChatGPT.
 

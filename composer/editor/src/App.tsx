@@ -9,6 +9,7 @@ import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
 import { Settings } from "./Settings";
 import { Timeline } from "./Timeline";
 import { Recorder } from "./Recorder";
+import { kindOf, newLayer } from "../../src/reel/layers";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
@@ -74,7 +75,12 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
   const [aspects, setAspects] = useState<string[]>(["9x16"]);
   const [wholeReel, setWholeReel] = useState(false);
-  const player = useRef<PlayerRef>(null);
+  const player = useRef<PlayerRef | null>(null);
+  const [playerEl, setPlayerEl] = useState<PlayerRef | null>(null); // the mounted player, for effects that must follow it
+  const setPlayer = useCallback((p: PlayerRef | null) => {
+    player.current = p;
+    setPlayerEl(p);
+  }, []);
   const saveTimer = useRef<number>();
   const versionRef = useRef<number | null | undefined>(undefined); // spec version on screen (cloud)
 
@@ -159,13 +165,15 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const words = useMemo(() => (spec ? outputWords(placed, spec.words) : []), [placed, spec?.words]);
   const inputProps = useMemo(() => (spec ? (forPlayer({ ...spec, safeGuide: safe }) as any) : null), [spec, safe]);
 
+  // Follow the player's frame. The player mounts only once the reel AND the catalog have loaded, in either
+  // order, so the listener is tied to the player instance itself, not to the reel having loaded.
   useEffect(() => {
-    const p = player.current;
-    if (!p) return;
+    if (!playerEl) return;
+    setFrame(playerEl.getCurrentFrame());
     const on = (e: { detail: { frame: number } }) => setFrame(e.detail.frame);
-    p.addEventListener("frameupdate", on);
-    return () => p.removeEventListener("frameupdate", on);
-  }, [inputProps !== null, pid]);
+    playerEl.addEventListener("frameupdate", on);
+    return () => playerEl.removeEventListener("frameupdate", on);
+  }, [playerEl]);
 
   const seekOut = (t: number) => player.current?.seekTo(Math.max(0, Math.round(t * fps)));
 
@@ -227,6 +235,18 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       });
     } catch (e: any) {
       setJob({ id: "", kind: "clips", project: pid, status: "error", progress: 0, log: [e.message], result: null });
+    }
+  };
+
+  /** Add a file as a media layer on its own track, starting where the playhead is. */
+  const addMedia = async (file: File) => {
+    const at = sourceNow;
+    try {
+      const r = await api.upload(pid, file);
+      const kind = kindOf(file.name, file.type ? !file.type.startsWith("audio/") : undefined);
+      update((s) => ({ ...s, layers: [...(s.layers || []), newLayer(s.layers, r.path, kind, at, r.seconds || 0)] }));
+    } catch (e: any) {
+      setJob({ id: "", kind: "media", project: pid, status: "error", progress: 0, log: [e.message], result: null });
     }
   };
 
@@ -444,7 +464,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             <div className="stage">
               {inputProps ? (
                 <Player
-                  ref={player}
+                  ref={setPlayer}
                   component={Reel as any}
                   inputProps={inputProps}
                   durationInFrames={Math.max(1, Math.round(duration * fps))}
@@ -470,6 +490,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               update={update}
               updateAndBake={updateAndBake}
               onAddClips={addClips}
+              onAddMedia={addMedia}
               onVoiceover={() => {
                 voiceAt.current = sourceNow;
                 setRecorder("voice");
