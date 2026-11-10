@@ -117,6 +117,7 @@ details.item summary { cursor: pointer; font-size: 13px; display: flex; justify-
 .tl .shot.end { background: #6b5320; }
 .tl .shot.sel { background: var(--brand); outline: 2px solid var(--accent); outline-offset: -2px; }
 .tl .shot i { position: absolute; left: 5px; top: 6px; font-size: 10px; font-style: normal; color: #fff; opacity: .85; pointer-events: none; }
+.tl .shot b { position: absolute; right: 0; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.28) 0 4px, transparent 4px 8px); }
 .tl .handle { position: absolute; top: -3px; bottom: -3px; width: 10px; margin-left: 0; background: var(--accent); border-radius: 3px 0 0 3px; cursor: ew-resize; z-index: 2; }
 .tl .handle.right { margin-left: -10px; border-radius: 0 3px 3px 0; }
 .tl .ov { position: absolute; top: 0; bottom: 0; background: #2f6b55; font-size: 10px; padding: 2px 4px; overflow: hidden; white-space: nowrap; border-radius: 4px; pointer-events: none; }

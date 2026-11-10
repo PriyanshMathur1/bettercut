@@ -143,7 +143,7 @@ export const Reel: React.FC<ReelProps> = (spec) => {
   const seg: PlacedSegment | undefined = placed.find((s) => t >= s.outStart && t < s.outEnd) || placed[placed.length - 1];
   const fxList: FX[] = [];
   if (seg) {
-    const z = autoZoomFor(spec.motion?.autoZoom || "off", seg.index, seg.zoom);
+    const z = autoZoomFor(spec.motion?.autoZoom || "off", seg.shot, seg.zoom);
     if (z !== 1) fxList.push({ transform: `scale(${z})` });
     const cam = EFFECT_MAP[spec.motion?.camera || ""];
     if (cam && cam.family === "camera") fxList.push(cam.fn(progress(t, seg.outStart, seg.outEnd), 1));

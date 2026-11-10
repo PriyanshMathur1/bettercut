@@ -216,7 +216,7 @@ def qa(spec: dict, rendered: Path, project: Path) -> dict:
     from .timeline import place_segments
 
     placed = place_segments(spec)
-    cut_ts = [s["outStart"] + 0.04 for s in placed[1:]][:24]
+    cut_ts = [s["outStart"] + 0.04 for s in placed[1:] if not s.get("join")][:24]
     report: dict = {"render": str(rendered), "probe": media.probe(rendered), "loudness": loudness(rendered), "cuts": len(cut_ts)}
     if cut_ts:
         report["cutSheet"] = str(media.contact_sheet(rendered, project / "work" / "cut_check.jpg", cut_ts, cols=6, width=180))

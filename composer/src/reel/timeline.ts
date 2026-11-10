@@ -12,6 +12,8 @@ export interface Span {
 /** A kept segment placed on the output timeline. */
 export interface PlacedSegment extends ReelSegment {
   index: number;
+  /** Visual shot number: steps on every real cut, not on seamless (join) pieces. Drives the auto punch-in. */
+  shot: number;
   outStart: number;
   outEnd: number;
 }
@@ -61,6 +63,9 @@ export function subtractSpans<T extends Span & { id?: string }>(segments: T[], c
           id: seg.id !== undefined && pieces.length > 1 ? `${seg.id}.${i}` : seg.id,
           start: p.start,
           end: p.end,
+          // a freeze frame belongs to the end of the shot, a seamless join to its start
+          ...("hold" in seg && i < pieces.length - 1 ? { hold: undefined } : {}),
+          ...("join" in seg && i > 0 ? { join: undefined } : {}),
         } as T),
       );
   }
@@ -85,13 +90,23 @@ export function cutWordSpans(words: ReelWord[]): Span[] {
   return sortAndMerge(spans, 0);
 }
 
-/** Segments after applying text-editor cuts, placed on the output timeline. */
+/** Seconds a shot holds its last frame (freeze frame); 0..10. */
+export function holdOf(s: { hold?: number }): number {
+  const v = s.hold ?? 0;
+  return v > 0 ? Math.min(10, v) : 0;
+}
+
+/**
+ * Segments after applying text-editor cuts, placed on the output timeline in the order they are listed
+ * (the pipeline lists them in filming order; the editor can reorder them).
+ */
 export function placeSegments(spec: Pick<ReelSpec, "segments" | "words">): PlacedSegment[] {
-  const base = [...spec.segments].sort((a, b) => a.start - b.start);
-  const kept = subtractSpans(base, cutWordSpans(spec.words));
+  const kept = subtractSpans(spec.segments, cutWordSpans(spec.words));
   let t = 0;
+  let shot = -1;
   return kept.map((s, index) => {
-    const placed = { ...s, index, outStart: t, outEnd: t + (s.end - s.start) / speedOf(s) };
+    if (!(s.join && index > 0)) shot++;
+    const placed = { ...s, index, shot, outStart: t, outEnd: t + (s.end - s.start) / speedOf(s) + holdOf(s) };
     t = placed.outEnd;
     return placed;
   });
@@ -120,7 +135,7 @@ export function toOutput(placed: PlacedSegment[], t: number): number | null {
 /** Map an output time back to source time (for the editor's scrubber). */
 export function toSource(placed: PlacedSegment[], out: number): number {
   for (const s of placed) {
-    if (out >= s.outStart - EPS && out < s.outEnd) return s.start + (out - s.outStart) * speedOf(s);
+    if (out >= s.outStart - EPS && out < s.outEnd) return Math.min(s.end, s.start + (out - s.outStart) * speedOf(s));
   }
   const last = placed[placed.length - 1];
   return last ? last.end : 0;
@@ -139,8 +154,9 @@ export function rangeToOutput(placed: PlacedSegment[], start: number, end: numbe
     if (b - a <= EPS) continue;
     const oa = s.outStart + (a - s.start) / speedOf(s);
     const ob = s.outStart + (b - s.start) / speedOf(s);
-    if (outStart === null) outStart = oa;
-    outEnd = ob;
+    // min/max, not first/last: reordered shots are not in source order
+    outStart = outStart === null ? oa : Math.min(outStart, oa);
+    outEnd = outEnd === null ? ob : Math.max(outEnd, ob);
   }
   if (outStart === null || outEnd === null) return null;
   return { start: outStart, end: outEnd };
@@ -150,8 +166,9 @@ export function rangeToOutput(placed: PlacedSegment[], start: number, end: numbe
 export function snapToOutput(placed: PlacedSegment[], t: number): number | null {
   const direct = toOutput(placed, t);
   if (direct !== null) return direct;
-  for (const s of placed) if (s.start > t) return s.outStart;
-  return null;
+  let next: PlacedSegment | null = null;
+  for (const s of placed) if (s.start > t && (!next || s.start < next.start)) next = s;
+  return next ? next.outStart : null;
 }
 
 export interface OutWord extends ReelWord {
@@ -169,7 +186,7 @@ export function outputWords(placed: PlacedSegment[], words: ReelWord[]): OutWord
     if (!r) return;
     out.push({ ...w, outStart: r.start, outEnd: Math.max(r.end, r.start + 0.05), index });
   });
-  return out;
+  return out.sort((a, b) => a.outStart - b.outStart); // output order (shots may be reordered)
 }
 
 export interface CaptionPage {
@@ -213,7 +230,7 @@ export function buildPages(words: OutWord[], wordsPerPage: number, maxChars = 26
 
 /** Output times of every cut (start of each segment after the first). */
 export function cutTimes(placed: PlacedSegment[]): number[] {
-  return placed.slice(1).map((s) => s.outStart);
+  return placed.slice(1).filter((s) => !s.join).map((s) => s.outStart);
 }
 
 /** 0..1 progress of `t` through [start, end], clamped. */

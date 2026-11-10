@@ -399,3 +399,20 @@ def test_a_clip_with_no_speech_becomes_a_whole_clip_reel(tmp_path, monkeypatch):
     from bettercut.spec import blocking
     assert blocking(spec) == []
     assert src.exists()
+
+
+def test_shots_play_in_listed_order_with_freeze_frames_and_joins():
+    """Python twin of composer/tests/reel/edit.test.ts: reorder, hold and join."""
+    from bettercut import timeline as tl
+
+    words = [{"text": "first", "start": 1, "end": 1.5}, {"text": "second", "start": 6, "end": 6.5}]
+    spec = {"segments": [{"id": "s2", "start": 5, "end": 9}, {"id": "s1", "start": 0, "end": 4}], "words": words}
+    placed = tl.place_segments(spec)
+    assert [(p["id"], p["outStart"], p["outEnd"]) for p in placed] == [("s2", 0, 4), ("s1", 4, 8)]
+    assert [w["text"] for w in tl.output_words(spec)] == ["second", "first"]
+
+    spec = {"segments": [{"start": 0, "end": 2, "hold": 1.5}, {"start": 2, "end": 4, "join": True}, {"start": 5, "end": 9}], "words": []}
+    placed = tl.place_segments(spec)
+    assert placed[-1]["outEnd"] == 9.5
+    assert [p["shot"] for p in placed] == [0, 0, 1]
+    assert tl.to_output(placed, 3) == 4.5  # after the 1.5 s freeze

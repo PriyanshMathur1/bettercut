@@ -139,7 +139,7 @@ TOOLS = [
 def to_source(placed: list[dict], t: float) -> tuple[float, int] | None:
     for s in placed:
         if s["outStart"] <= t <= s["outEnd"] + 1e-6:
-            return s["start"] + (t - s["outStart"]) * speed_of(s), s["index"]
+            return min(s["end"], s["start"] + (t - s["outStart"]) * speed_of(s)), s["index"]
     if placed and t > placed[-1]["outEnd"]:
         s = placed[-1]
         return s["end"], s["index"]

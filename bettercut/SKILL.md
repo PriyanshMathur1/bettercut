@@ -36,7 +36,7 @@ Projects live in `~/bettercut-projects/<project>/` (override with `BETTERCUT_PRO
 
 ## spec.json (times are SOURCE seconds unless named out*)
 - `source {src, matte?, width, height, duration, fps}`. `matte` = cut-out VP9 webm, enables behind-head.
-- `segments[] {start, end, zoom?, cx?, cy?}`: kept ranges of the source, in order. `zoom` = punch-in for
+- `segments[] {start, end, zoom?, cx?, cy?, speed?, hold?, join?}`: the shots, played in listed order (reorder the list to reorder the reel; shots must not overlap in the source). `speed` 0.25..4. `hold` = freeze the last frame for N seconds. `join: true` = continues the previous shot with no cut (speed-ramp steps). `zoom` = punch-in for
   that shot, `cx/cy` = focus (0..1).
 - `words[] {text, start, end, cut?, emphasis?, emoji?, breakAfter?}`. `cut: true` removes the word AND the
   gap after it. `emphasis` = punch word (bigger/accent; behind the head when `captions.behindHead`).

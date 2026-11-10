@@ -15,7 +15,7 @@ This demo was cut, captioned and rendered by BetterCut itself. [Watch it with so
 
 - **Cuts for you.** Transcribes your clips, keeps the last clean take of every repeated line, and removes fillers and dead air.
 - **Edit by editing text.** Click a word to cut it, punch it up or fix its spelling. The video follows.
-- **Timeline.** Split at the playhead, drag a shot's edges to trim, delete shots, change a shot's speed, scrub and zoom.
+- **Timeline.** Split at the playhead, drag a shot's edges to trim, delete and reorder shots, freeze a frame, set a shot's speed or apply a speed ramp, scrub and zoom.
 - **Captions and style.** 17 looks, 63 caption styles, 16 layouts, 61 motion effects, 13 opening titles, 19 animated overlays.
 - **Pro finish.** Colour grades and LUTs, voice clean-up, loudness for social, sound effects, face-aware framing.
 - **Any shape.** Render 9:16, 4:5, 1:1 and 16:9 from one edit. Export SRT, VTT and an FCPXML timeline.
@@ -96,7 +96,7 @@ cd composer && npm test
 
 This is a young project. What has been checked and what has not:
 
-- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 81 Python tests and 16 Node tests.
+- Checked: the pipeline, editor and renders on macOS (Apple Silicon); 82 Python tests and 20 Node tests.
 - Not yet checked: the Docker image has not been built, hosted Google sign-in has not been run against a live Supabase
   project, and the connector has been exercised with direct calls only, not yet from Claude.ai or ChatGPT.
 

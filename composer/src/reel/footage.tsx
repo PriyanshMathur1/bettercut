@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Img, OffthreadVideo, Sequence, useVideoConfig } from "remotion";
+import { AbsoluteFill, Freeze, Img, OffthreadVideo, Sequence, useVideoConfig } from "remotion";
 import { resolveAsset } from "./asset";
 import type { PlacedSegment } from "./timeline";
 
@@ -53,10 +53,23 @@ export const FootageTrack: React.FC<{
       {placed.map((s) => {
         const from = Math.round(s.outStart * fps);
         const rate = s.speed && s.speed > 0 ? Math.min(4, Math.max(0.25, s.speed)) : 1;
-        const dur = Math.max(1, Math.round(s.outEnd * fps) - from);
+        const hold = Math.min(10, Math.max(0, s.hold ?? 0));
+        const holdFrom = Math.round((s.outEnd - hold) * fps);
+        const dur = Math.max(1, holdFrom - from);
+        const holdDur = Math.round(s.outEnd * fps) - holdFrom;
         const r = fitRect(srcW, srcH, boxW, boxH, fit, s.cx ?? 0.5, s.cy ?? 0.42);
+        const css: React.CSSProperties = { position: "absolute", left: r.left, top: r.top, width: r.width, height: r.height, maxWidth: "none", ...style };
         return (
-          <Sequence key={`${s.index}-${s.start}`} from={from} durationInFrames={dur} layout="none">
+          <React.Fragment key={`${s.index}-${s.start}`}>
+          {holdDur > 0 ? (
+            <Sequence from={holdFrom} durationInFrames={holdDur} layout="none">
+              {/* freeze frame: the shot's last frame, silent */}
+              <Freeze frame={0}>
+                <OffthreadVideo src={url} trimBefore={Math.max(0, Math.round(s.end * fps) - 1)} muted transparent={transparent} style={css} />
+              </Freeze>
+            </Sequence>
+          ) : null}
+          <Sequence from={from} durationInFrames={dur} layout="none">
             <OffthreadVideo
               src={url}
               trimBefore={Math.round(s.start * fps)}
@@ -64,9 +77,10 @@ export const FootageTrack: React.FC<{
               muted={muted}
               transparent={transparent}
               volume={(f) => (muted ? 0 : volume * Math.min(1, (f + 1) / AUDIO_FADE, (dur - f) / AUDIO_FADE))}
-              style={{ position: "absolute", left: r.left, top: r.top, width: r.width, height: r.height, maxWidth: "none", ...style }}
+              style={css}
             />
           </Sequence>
+          </React.Fragment>
         );
       })}
     </AbsoluteFill>

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
-import { baseOf, patchShot, removeShot, splitAt, trimShot } from "../../src/reel/edit";
+import { baseOf, freezeAt, moveShot, patchShot, rampShot, removeShot, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit";
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -22,11 +22,11 @@ export const Timeline: React.FC<{
   onSeek: (t: number) => void;
   update: (fn: (s: ReelSpec) => ReelSpec) => void;
 }> = ({ spec, placed, duration, t, notes, onSeek, update }) => {
-  const [sel, setSel] = useState<number | null>(null); // selected shot, in source order
+  const [sel, setSel] = useState<number | null>(null); // selected shot, in playing order
   const [zoom, setZoom] = useState(1);
   const lane = useRef<HTMLDivElement>(null);
 
-  const shots = [...spec.segments].sort((a, b) => a.start - b.start);
+  const shots = spec.segments;
   const body = totalOutDuration(placed);
   const pct = (x: number) => `${(x / duration) * 100}%`;
   const pieces = placed.map((p) => ({ p, base: baseOf(shots, p) }));
@@ -45,6 +45,20 @@ export const Timeline: React.FC<{
   const remove = () => {
     if (sel === null || shots.length <= 1) return;
     update((s) => ({ ...s, segments: removeShot(s.segments, sel) }));
+    setSel(null);
+  };
+
+  const move = (by: number) => {
+    if (sel === null) return;
+    const to = sel + by;
+    if (to < 0 || to >= shots.length) return;
+    update((s) => ({ ...s, segments: moveShot(s.segments, sel, to) }));
+    setSel(to);
+  };
+  const freeze = () => {
+    if (!canSplit) return;
+    const at = toSource(placed, t);
+    update((s) => ({ ...s, segments: freezeAt(s.segments, at, 1) }));
     setSel(null);
   };
 
@@ -114,8 +128,17 @@ export const Timeline: React.FC<{
         <button onClick={remove} disabled={sel === null || shots.length <= 1} title="Remove the selected shot (Delete)">
           Delete shot
         </button>
+        <button onClick={freeze} disabled={!canSplit} title="Hold the picture at the playhead for one second">
+          Freeze 1s
+        </button>
         {selected ? (
           <>
+            <button onClick={() => move(-1)} disabled={sel === 0} title="Play this shot earlier" aria-label="Move shot earlier">
+              ◀
+            </button>
+            <button onClick={() => move(1)} disabled={sel === shots.length - 1} title="Play this shot later" aria-label="Move shot later">
+              ▶
+            </button>
             <label title="Playback speed of this shot">
               Speed
               <select
@@ -132,8 +155,45 @@ export const Timeline: React.FC<{
                 ))}
               </select>
             </label>
+            <label title="Change speed gradually across this shot">
+              Ramp
+              <select
+                value=""
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  update((s) => ({ ...s, segments: rampShot(s.segments, sel!, id) }));
+                  setSel(null);
+                }}
+              >
+                <option value="">Choose…</option>
+                {Object.entries(SPEED_RAMPS).map(([id, r]) => (
+                  <option key={id} value={id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selected.hold ? (
+              <label title="How long this shot holds its last frame">
+                Freeze
+                <select
+                  value={selected.hold}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    update((s) => ({ ...s, segments: patchShot(s.segments, sel!, { hold: v || undefined }) }));
+                  }}
+                >
+                  {[0, 0.5, 1, 1.5, 2, 3, 5].concat([0, 0.5, 1, 1.5, 2, 3, 5].includes(selected.hold) ? [] : [selected.hold]).map((v) => (
+                    <option key={v} value={v}>
+                      {v ? `${v}s` : "Off"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <span className="tl-info">
-              Shot {sel! + 1} of {shots.length} · {((selected.end - selected.start) / speedOf(selected)).toFixed(1)}s · drag its edges to trim
+              Shot {sel! + 1} of {shots.length} · {(selected.end - selected.start) / speedOf(selected) + (selected.hold || 0) < 10 ? ((selected.end - selected.start) / speedOf(selected) + (selected.hold || 0)).toFixed(1) : Math.round((selected.end - selected.start) / speedOf(selected) + (selected.hold || 0))}s
             </span>
           </>
         ) : (
@@ -173,6 +233,7 @@ export const Timeline: React.FC<{
                 }}
               >
                 {speedOf(p) !== 1 ? <i>{speedOf(p)}×</i> : null}
+                {p.hold ? <b style={{ width: `${(Math.min(10, p.hold) / (p.outEnd - p.outStart)) * 100}%` }} title={`Freeze frame, ${p.hold}s`} /> : null}
               </div>
             ))}
             {spec.endCard?.enabled ? <div className="shot end" style={{ left: pct(duration - spec.endCard.duration), width: pct(spec.endCard.duration) }} title="End card" /> : null}

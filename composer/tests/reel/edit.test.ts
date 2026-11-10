@@ -1,7 +1,8 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { baseOf, MIN_SHOT, patchShot, removeShot, shotAt, splitAt, trimShot } from "../../src/reel/edit.ts";
+import { baseOf, freezeAt, MIN_SHOT, moveShot, patchShot, rampShot, removeShot, shotAt, SPEED_RAMPS, splitAt, trimShot } from "../../src/reel/edit.ts";
+import { cutTimes, outputWords, placeSegments, rangeToOutput, snapToOutput, toSource, totalOutDuration } from "../../src/reel/timeline.ts";
 
 const shots = () => [
   { id: "s1", start: 0, end: 4, zoom: 1.2 },
@@ -10,6 +11,7 @@ const shots = () => [
 
 test("splitAt cuts the shot under the playhead and keeps its settings", () => {
   const out = splitAt(shots(), 2);
+  assert.deepEqual(splitAt([{ id: "h", start: 0, end: 4, hold: 1 }], 2).map((s) => s.hold), [undefined, 1]);
   assert.deepEqual(out.map((s) => [s.start, s.end]), [[0, 2], [2, 4], [5, 9]]);
   assert.equal(out[1].zoom, 1.2);
   assert.notEqual(out[1].id, out[0].id);
@@ -44,9 +46,58 @@ test("patchShot sets and clears fields", () => {
   assert.equal("zoom" in patchShot(shots(), 0, { zoom: undefined })[0], false);
 });
 
-test("shotAt and baseOf find shots by source time, whatever the list order", () => {
-  const unordered = [shots()[1], shots()[0]];
-  assert.equal(shotAt(unordered, 6), 1);
-  assert.equal(shotAt(unordered, 4.5), -1);
-  assert.equal(baseOf(unordered, { start: 5.5, end: 7 }), 1); // a piece left after a text cut
+test("shotAt and baseOf find shots by source time, whatever the playing order", () => {
+  const reordered = [shots()[1], shots()[0]];
+  assert.equal(shotAt(reordered, 6), 0);
+  assert.equal(shotAt(reordered, 4.5), -1);
+  assert.equal(baseOf(reordered, { start: 5.5, end: 7 }), 0); // a piece left after a text cut
+});
+
+test("moveShot changes the playing order and the reel follows it", () => {
+  const moved = moveShot(shots(), 1, 0);
+  assert.deepEqual(moved.map((s) => s.id), ["s2", "s1"]);
+  assert.deepEqual(moveShot(shots(), 0, 99).map((s) => s.id), ["s2", "s1"]);
+  const words = [{ text: "first", start: 1, end: 1.5 }, { text: "second", start: 6, end: 6.5 }];
+  const placed = placeSegments({ segments: moved, words });
+  assert.deepEqual(placed.map((p) => [p.id, p.outStart, p.outEnd]), [["s2", 0, 4], ["s1", 4, 8]]);
+  // captions come out in playing order, and source <-> output mapping still round-trips
+  assert.deepEqual(outputWords(placed, words).map((w) => w.text), ["second", "first"]);
+  assert.equal(toSource(placed, 1), 6);
+  assert.equal(snapToOutput(placed, 4.5), 0); // in the gap: the next footage is s2, which now plays first
+  // something spanning both shots covers the whole reel, never a negative range
+  assert.deepEqual(rangeToOutput(placed, 0, 9), { start: 0, end: 8 });
+});
+
+test("trimShot uses the neighbour in the footage, not in the playing order", () => {
+  const moved = moveShot(shots(), 1, 0); // s2 (5-9) plays first, s1 (0-4) second
+  assert.equal(trimShot(moved, 0, "start", 1, 10)[0].start, 4);
+  assert.equal(trimShot(moved, 1, "end", 8, 10)[1].end, 5);
+});
+
+test("freezeAt holds the frame under the playhead and the reel gets longer", () => {
+  const out = freezeAt(shots(), 2, 1.5);
+  assert.deepEqual(out.map((s) => [s.start, s.end, s.hold, s.join]), [[0, 2, 1.5, undefined], [2, 4, undefined, true], [5, 9, undefined, undefined]]);
+  const placed = placeSegments({ segments: out, words: [] });
+  assert.equal(totalOutDuration(placed), 8 + 1.5);
+  assert.equal(toSource(placed, 2.7), 2); // during the hold the footage stays on the frozen frame
+  assert.equal(toSource(placed, 4), 2.5); // and carries on afterwards
+  assert.deepEqual(cutTimes(placed), [5.5]); // the freeze is not a cut; the real one is
+  assert.deepEqual(freezeAt(shots(), 4, 1).map((s) => s.hold), [1, undefined]); // at a shot's end: no split
+  assert.deepEqual(freezeAt(shots(), 4.5, 1), shots()); // in a gap: nothing
+});
+
+test("rampShot turns a shot into seamless speed steps that cover the same footage", () => {
+  const out = rampShot(shots(), 0, "slow-middle");
+  const steps = out.slice(0, 5);
+  assert.deepEqual(steps.map((s) => s.speed), SPEED_RAMPS["slow-middle"].speeds);
+  assert.equal(steps[0].start, 0);
+  assert.equal(steps[4].end, 4);
+  for (let k = 1; k < 5; k++) assert.equal(steps[k].start, steps[k - 1].end);
+  assert.deepEqual(steps.map((s) => !!s.join), [false, true, true, true, true]);
+  assert.equal(new Set(out.map((s) => s.id)).size, out.length);
+  assert.equal(steps[2].zoom, 1.2);
+  const placed = placeSegments({ segments: out, words: [] });
+  assert.deepEqual(placed.slice(0, 5).map((p) => p.shot), [0, 0, 0, 0, 0]); // one visual shot: no punch-in flicker
+  assert.deepEqual(cutTimes(placed).length, 1);
+  assert.deepEqual(rampShot([{ id: "x", start: 0, end: 0.5 }], 0, "speed-up"), [{ id: "x", start: 0, end: 0.5 }]); // too short
 });

@@ -37,7 +37,12 @@ def subtract_spans(segments: list[dict], cuts: list[dict]) -> list[dict]:
         pieces = [p for p in pieces if p["end"] - p["start"] >= 0.04]
         for i, p in enumerate(pieces):
             sid = seg.get("id")
-            out.append({**seg, "start": p["start"], "end": p["end"], **({"id": f"{sid}.{i}"} if sid is not None and len(pieces) > 1 else {})})
+            piece = {**seg, "start": p["start"], "end": p["end"], **({"id": f"{sid}.{i}"} if sid is not None and len(pieces) > 1 else {})}
+            if i < len(pieces) - 1:
+                piece.pop("hold", None)  # a freeze frame belongs to the end of the shot
+            if i > 0:
+                piece.pop("join", None)  # a seamless join belongs to its start
+            out.append(piece)
     return out
 
 
@@ -59,14 +64,22 @@ def speed_of(seg: dict) -> float:
     return min(4.0, max(0.25, v)) if v > 0 else 1.0
 
 
+def hold_of(seg: dict) -> float:
+    v = seg.get("hold") or 0
+    return min(10.0, v) if v > 0 else 0.0
+
+
 def place_segments(spec: dict) -> list[dict]:
-    base = sorted(spec.get("segments", []), key=lambda s: s["start"])
-    kept = subtract_spans(base, cut_word_spans(spec.get("words", [])))
+    """Shots on the output timeline, in listed order (the editor can reorder them)."""
+    kept = subtract_spans(spec.get("segments", []), cut_word_spans(spec.get("words", [])))
     t = 0.0
+    shot = -1
     out = []
     for i, s in enumerate(kept):
-        d = (s["end"] - s["start"]) / speed_of(s)
-        out.append({**s, "index": i, "outStart": t, "outEnd": t + d})
+        if not (s.get("join") and i > 0):
+            shot += 1
+        d = (s["end"] - s["start"]) / speed_of(s) + hold_of(s)
+        out.append({**s, "index": i, "shot": shot, "outStart": t, "outEnd": t + d})
         t += d
     return out
 
@@ -89,7 +102,7 @@ def output_words(spec: dict) -> list[dict]:
         if a is None or b is None:
             continue
         out.append({**w, "outStart": a, "outEnd": max(b, a + 0.05)})
-    return out
+    return sorted(out, key=lambda w: w["outStart"])  # output order (shots may be reordered)
 
 
 def total_duration(spec: dict) -> float:
