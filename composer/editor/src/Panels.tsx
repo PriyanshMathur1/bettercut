@@ -67,6 +67,7 @@ const groupBy = <T, K extends string>(xs: T[], f: (x: T) => K) =>
 
 const DEFAULT_OVERLAY: Record<string, Partial<ReelOverlay>> = {
   emoji: { emoji: "🔥" },
+  text: { text: "Your text" },
   sticker: { text: "NEW" },
   lowerThird: {},
   checklist: { text: "Checklist", items: ["First thing", "Second thing", "Third thing"] },

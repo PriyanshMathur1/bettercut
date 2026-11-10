@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimateRow } from "./AnimateRow";
 import { CLIP_DRAG } from "./workspace";
+import { CAMERA_MOVES, cameraKeys, moveOf } from "../../src/reel/camera";
 import type { ReelSpec } from "../../src/reel/types";
 import { placeSegments, rangeToOutput, speedOf, toSource, totalOutDuration } from "../../src/reel/timeline";
 import { baseOf, clipAt, freezeAt, insertIndex, moveBefore, moveShot, placeClip, patchShot, placeSpan, rampShot, removeShot, SPEED_RAMPS, splitAt, splitMany, trimShot } from "../../src/reel/edit";
@@ -594,6 +595,25 @@ export const Timeline: React.FC<{
                 </select>
               </label>
             ) : null}
+            <label title="A named camera move for this shot. It writes keyframes you can still edit below.">
+              Camera move
+              <select
+                value={moveOf(selected)}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id === "custom") return;
+                  update((s) => ({ ...s, segments: patchShot(s.segments, sel!, { keys: cameraKeys(s.segments[sel!], id) }) }));
+                }}
+              >
+                <option value="">None</option>
+                {moveOf(selected) === "custom" ? <option value="custom">Custom keyframes</option> : null}
+                {CAMERA_MOVES.map((m) => (
+                  <option key={m.id} value={m.id} title={m.hint}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label title="Change speed gradually across this shot">
               Ramp
               <select
