@@ -73,6 +73,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [settings, setSettings] = useState<null | "Connect" | "Model" | "Memory" | "Account">(null);
   const [hasModel, setHasModel] = useState(!cloud);
   const [aiReply, setAiReply] = useState("");
+  const [landed, setLanded] = useState(""); // a short notice when an edit from Claude lands in the open reel
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [pid, setPid] = useState<string>(() => new URLSearchParams(location.search).get("reel") || localStorage.getItem("rs.pid") || "");
@@ -118,7 +119,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     player.current = p;
     setPlayerEl(p);
   }, []);
-  const versionRef = useRef<number | null | undefined>(undefined); // spec version on screen (cloud)
+  const versionRef = useRef<number | null | undefined>(undefined); // spec version on screen
 
   const refreshCatalog = useCallback(() => api.catalog().then(setCatalog), []);
   const refreshProjects = useCallback(() => api.projects().then(setProjects), []);
@@ -149,11 +150,11 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
     setNotes([]);
   }, [pid]);
 
-  /** Cloud: pick up edits made elsewhere (your AI app through the connector, or a finished bake) as they land. */
+  /** Pick up edits made elsewhere (Claude or your AI app through the connector, or a finished job) as they land. */
   const savingRef = useRef(saving);
   savingRef.current = saving;
   useEffect(() => {
-    if (!cloud || !pid) return;
+    if (!pid) return;
     const poll = async () => {
       if (savingRef.current !== "saved" || document.hidden || versionRef.current === undefined) return;
       try {
@@ -162,7 +163,11 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
         versionRef.current = h.version;
         if (changed && h.author !== "user") {
           await loadSpec(pid);
-          if (h.author === "agent") setAiReply(`Edited from your AI app: ${h.summary || "change applied"}`);
+          if (h.author === "agent") {
+            const msg = `${cloud ? "Edited from your AI app" : "Claude edited this"}: ${h.summary || "change applied"}`;
+            setAiReply(msg);
+            setLanded(msg);
+          }
         }
       } catch {}
     };
@@ -1095,6 +1100,11 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
             refreshMe();
           }}
         />
+      ) : null}
+      {landed ? (
+        <div className="landed" role="status" onAnimationEnd={() => setLanded("")} key={landed}>
+          {landed}
+        </div>
       ) : null}
       {recorder ? (
         <Recorder

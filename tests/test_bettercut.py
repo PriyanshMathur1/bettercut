@@ -1018,3 +1018,81 @@ def test_render_versions_count_every_kind_of_render(tmp_path):
     for name in ["p-v1.mp4", "p-v1-phone.mp4", "p-v2-16x9.mp4", "p-v3-4k.mp4", "p-v4.mov", "p-v1.srt"]:
         (r / name).write_bytes(b"")
     assert pipeline.next_version(tmp_path) == 5
+
+
+# ---- Claude connection (local MCP) ----
+
+def _rpc(c, method, params=None, mid=1, **headers):
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "id": mid, "method": method, "params": params or {}}, headers=headers)
+    return r
+
+
+def _tool(c, name, **args):
+    r = _rpc(c, "tools/call", {"name": name, "arguments": args})
+    assert r.status_code == 200, r.text
+    res = r.json()["result"]
+    return res["content"][0]["text"], res["isError"]
+
+
+def test_claude_can_read_and_edit_a_reel_on_this_computer(tmp_path, monkeypatch):
+    import json as _json
+
+    c = _editor(tmp_path, monkeypatch)
+    c.base_url = "http://127.0.0.1:4790"
+    init = _rpc(c, "initialize", {"protocolVersion": "2025-06-18"}).json()["result"]
+    assert init["serverInfo"]["name"] == "bettercut" and init["protocolVersion"] == "2025-06-18"
+    names = {t["name"] for t in _rpc(c, "tools/list").json()["result"]["tools"]}
+    assert {"list_reels", "get_spec", "patch_spec", "undo", "make_reel", "render", "zoom_on_clicks", "cut_to_speaker"} <= names
+    assert c.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}).status_code == 202
+
+    reels = _json.loads(_tool(c, "list_reels")[0])["reels"]
+    assert reels[0]["id"] == "p" and reels[0]["editor"].endswith("/?reel=p")
+    assert "spec" in _tool(c, "get_guide")[0].lower()
+
+    head0 = c.get("/api/projects/p/head").json()
+    text, bad = _tool(c, "patch_spec", reel="p", ops=[{"op": "replace", "path": "/title", "value": "from claude"}], why="Renamed the reel")
+    assert not bad and text.startswith("ok")
+    assert c.get("/api/projects/p/spec").json()["spec"]["title"] == "from claude"
+    head = c.get("/api/projects/p/head").json()
+    assert head["author"] == "agent" and head["summary"] == "Renamed the reel" and head["version"] != head0["version"]
+    assert c.get("/api/projects/p/spec").json()["canUndo"] is True  # one Undo step in the editor too
+
+    # the source footage is off limits; a broken patch changes nothing
+    assert _tool(c, "patch_spec", reel="p", ops=[{"op": "replace", "path": "/source/src", "value": "x"}], why="x")[1]
+    assert _tool(c, "patch_spec", reel="p", ops=[{"op": "remove", "path": "/nope"}], why="x")[1]
+
+    # undo reverts Claude's latest change, but never the creator's own
+    assert _tool(c, "undo", reel="p") == ("ok: reverted the last change", False)
+    assert c.get("/api/projects/p/spec").json()["spec"]["title"] == "one"
+    _save(c, "mine")
+    assert c.get("/api/projects/p/head").json()["author"] == "user"
+    text, bad = _tool(c, "undo", reel="p")
+    assert bad and "not made through this connection" in text
+    assert c.get("/api/projects/p/spec").json()["spec"]["title"] == "mine"
+
+    assert _tool(c, "get_spec", reel="nope", section="overview")[1]
+    assert "full path" in _tool(c, "make_reel", clips=["relative.mp4"])[0]
+    assert "no such file" in _tool(c, "make_reel", clips=[str(tmp_path / "missing.mp4")])[0]
+    (tmp_path / "notes.txt").write_text("x")
+    assert "not a video" in _tool(c, "make_reel", clips=[str(tmp_path / "notes.txt")])[0]
+    assert _tool(c, "job_status", job="nope")[1]
+
+
+def test_claude_connection_only_answers_this_computer(tmp_path, monkeypatch):
+    from bettercut import connect
+
+    c = _editor(tmp_path, monkeypatch)
+    assert _rpc(c, "ping", host="127.0.0.1:4790").status_code == 200
+    assert _rpc(c, "ping", host="localhost:4790", origin="http://localhost:4790").status_code == 200
+    assert _rpc(c, "ping", host="evil.example:4790").status_code == 403  # DNS rebinding
+    assert _rpc(c, "ping", host="127.0.0.1:4790", origin="https://evil.example").status_code == 403  # a web page
+    assert connect.local_request("[::1]:4790", None) and not connect.local_request("10.0.0.5:4790", None)
+
+
+def test_claude_setup_lists_paths_for_both_apps():
+    from bettercut import connect
+
+    cfg = connect.client_config(4790)
+    desk = cfg["claude_desktop"]["mcpServers"]["bettercut"]
+    assert desk["args"][:3] == ["-m", "bettercut", "mcp"] and "PYTHONPATH" in desk["env"]
+    assert cfg["claude_code"] == "claude mcp add --transport http bettercut http://127.0.0.1:4790/mcp"

@@ -67,28 +67,34 @@ Prefer the command line:
 
 Projects are saved in `~/bettercut-projects`. Run `python -m bettercut --help` for every command.
 
-## Edit by chatting (no API key)
+## Edit with Claude (no API key)
 
-Start the multi-user build of the editor, which includes the connector:
+Claude Desktop or Claude Code edits your reels on this computer, on your normal Claude subscription. The open editor
+shows each change as it lands, and every change is one Undo step. Nothing leaves your computer except what you type to
+Claude.
 
-```bash
-.venv/bin/python -m bettercut cloud --port 4795
-```
-
-Then add `http://localhost:4795/mcp` to an AI app on the same computer. With Claude Code:
+Print the setup for this computer (paths filled in):
 
 ```bash
-claude mcp add --transport http bettercut http://localhost:4795/mcp
+.venv/bin/python -m bettercut mcp --config
 ```
 
-Keep the editor open at http://localhost:4795 and ask for an edit, for example: "List my reels, then tighten the pauses in
-the latest one and make the hook a question." Each change appears in the editor and is one Undo step.
+- **Claude Desktop:** paste the `claude_desktop` part into Claude Desktop's config file (Settings > Developer > Edit
+  Config), then restart Claude Desktop. It starts the editor by itself when Claude needs it.
+- **Claude Code:** with the editor running (`.venv/bin/python -m bettercut ui`), run
 
-Hosted AI apps (Claude.ai, ChatGPT) can only reach a public HTTPS site. For those, deploy BetterCut and give each user their
-personal connector link from **Settings > Connect your AI**.
+  ```bash
+  claude mcp add --transport http bettercut http://127.0.0.1:4790/mcp
+  ```
 
+Then ask, for example: "Make a reel from ~/Movies/take1.mov and ~/Movies/take2.mov, hook first, under 30 seconds", or
+"In my latest reel, tighten the pauses and make the hook a question". Claude can start reels from files on this
+computer, add clips and camera angles, zoom on clicks, cut to the speaker, edit anything in the reel, and render.
+
+The connection only answers apps on this computer. Hosted AI apps (Claude.ai, ChatGPT) can only reach a public HTTPS
+site: for those, deploy BetterCut (below) and give each user their connector link from **Settings > Connect your AI**.
 If you would rather use an API key, the Notes box in the editor works with Anthropic, OpenAI, Gemini, OpenRouter or any
-OpenAI-compatible endpoint. Keys are encrypted at rest.
+OpenAI-compatible endpoint.
 
 ## Host it for others
 
