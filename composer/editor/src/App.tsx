@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Player, type PlayerRef } from "@remotion/player";
 import { Reel, reelDuration } from "../../src/reel/Reel";
 import type { ReelSpec } from "../../src/reel/types";
-import { placeSegments, toOutput, toSource, outputWords, cutTimes, rangeToOutput } from "../../src/reel/timeline";
+import { placeSegments, toOutput, toSource, outputWords, cutTimes, rangeToOutput, totalOutDuration } from "../../src/reel/timeline";
 import { api, forPlayer, watchJob, type Catalog, type CloudConfig, type Job, type ProjectRow } from "./api";
 import { Panel, TABS, type Tab } from "./Panels";
 import { initAuth, authError, signInWithGoogle, currentSession } from "./auth";
@@ -12,7 +12,7 @@ import { Recorder } from "./Recorder";
 import { kindOf, layerProblem, newLayer, placeLayer } from "../../src/reel/layers";
 import { LayerHandle } from "./LayerHandle";
 import { followPlayer, volumeToRestore } from "./preview";
-import { askNotes, groupOf, keepTab, railFor, readWorkspace, toggleShape, writeWorkspace, type RailIcon, type Workspace } from "./workspace";
+import { askNotes, fmtClock, groupOf, keepTab, railFor, readWorkspace, toggleShape, withoutSent, writeWorkspace, type RailIcon, type Workspace } from "./workspace";
 import { AskBar, ExportMenu, ProjectCard, Rail, SHAPES } from "./Simple";
 
 const storage = () => {
@@ -23,7 +23,7 @@ const storage = () => {
   }
 };
 
-const fmt = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+const fmt = fmtClock;
 
 /** Loads the server config, handles sign-in (cloud), then shows the editor. */
 export const App: React.FC = () => {
@@ -85,7 +85,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const [layerSel, setLayerSel] = useState<number | null>(null); // layer selected on the timeline
   const volumeBefore = useRef(1); // preview volume to restore after a voiceover take
   const voiceAt = useRef(0); // where in the footage the playhead was when a voiceover started
-  const [notes, setNotes] = useState<{ t: number; text: string }[]>([]);
+  const [notes, setNotes] = useState<{ t: number | null; text: string }[]>([]); // t: reel seconds, or null for the whole reel
   const [noteText, setNoteText] = useState("");
   const [mode, setMode] = useState<"seek" | "cut" | "emphasis" | "edit">("seek");
   const [aspects, setAspects] = useState<string[]>(["9x16"]);
@@ -186,6 +186,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const tOut = frame / fps;
   const sourceNow = toSource(placed, tOut);
   const words = useMemo(() => (spec ? outputWords(placed, spec.words) : []), [placed, spec?.words]);
+  const cutCount = useMemo(() => (spec ? spec.words.filter((w) => w.cut).length : 0), [spec?.words]); // the editor re-renders every frame
   const inputProps = useMemo(() => (spec ? (forPlayer({ ...spec, safeGuide: safe }) as any) : null), [spec, safe]);
 
   // A voiceover take silences the preview. If the page closed before the take ended, put the volume back.
@@ -377,7 +378,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       const { job: id } = await api.notes(pid, list);
       run(id, (j) => {
         if (j.status === "done") {
-          setNotes([]);
+          setNotes((cur) => withoutSent(cur, list)); // keep notes pinned while the AI was working
           setAiReply(j.result?.summary || "");
           loadSpec(pid);
         }
@@ -409,8 +410,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
   const ask = () => {
     const all = askNotes(notes, noteText);
     setNoteText("");
-    setNotes(all as typeof notes);
-    sendNotes(all as typeof notes);
+    setNotes(all);
+    sendNotes(all);
   };
 
   const current = projects.find((p) => p.id === pid);
@@ -537,7 +538,10 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
       ) : (
         <main className={simple ? `simple ${group ? "" : "shut"}` : ""}>
           {simple ? (
-            <Rail rail={rail} open={group ? railOpen : null} tab={shownTab} onOpen={(g) => setRailOpen(g.id)} onTab={setTab} onClose={() => setRailOpen(null)}>
+            <Rail rail={rail} open={group ? railOpen : null} tab={shownTab} onOpen={(g) => {
+              setRailOpen(g.id);
+              setTab(keepTab(tab, g.tabs)); // remember the panel on screen, so switching to Pro keeps it
+            }} onTab={setTab} onClose={() => setRailOpen(null)}>
               <Panel tab={shownTab} spec={spec} update={update} catalog={catalog} pid={pid} sourceNow={sourceNow} applyLook={applyLook} refreshCatalog={refreshCatalog} />
             </Rail>
           ) : (
@@ -602,7 +606,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               placed={placed}
               duration={duration}
               t={tOut}
-              notes={notes}
+              notes={notes.filter((n): n is { t: number; text: string } => n.t !== null)} // whole-reel notes have no place on the timeline
               onSeek={seekOut}
               update={update}
               updateAndBake={updateAndBake}
@@ -652,7 +656,9 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                   onShape={(id) => setAspects((x) => toggleShape(x, id))}
                   length={fmt(duration)}
                   shots={spec.segments.length}
-                  cut={spec.words.filter((w) => w.cut).length}
+                  cut={cutCount}
+                  busy={job?.status === "running"}
+                  canVoice={tOut < totalOutDuration(placed) - 0.01}
                   onAdd={(what) => {
                     if (what === "text") openTab("Titles");
                     else if (what === "music") openTab("Audio");
@@ -673,7 +679,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                   onChange={(e) => {
                     const files = Array.from(e.target.files || []);
                     e.target.value = "";
-                    if (files.length) addClips(files);
+                    if (files.length && job?.status !== "running") addClips(files);
                   }}
                 />
               </>
@@ -687,7 +693,7 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                 onChange={(e) => setNoteText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && noteText.trim()) {
-                    setNotes((n) => [...n, { t: wholeReel ? (null as any) : tOut, text: noteText.trim() }].sort((a, b) => (a.t ?? -1) - (b.t ?? -1)));
+                    setNotes((n) => [...n, { t: wholeReel ? null : tOut, text: noteText.trim() }].sort((a, b) => (a.t ?? -1) - (b.t ?? -1)));
                     setNoteText("");
                   }
                 }}
@@ -698,13 +704,15 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
               <span>Note is about the whole reel</span>
             </label>
             <ul className="list notes">
-              {notes.map((n, i) => (
+              {notes.map((n, i) => {
+                const at = n.t; // a note about the whole reel has no time
+                return (
                 <li key={i}>
-                  {n.t === null || n.t === undefined ? (
+                  {at === null ? (
                     <span className="tag-inline">all</span>
                   ) : (
-                    <button className="link" onClick={() => seekOut(n.t)}>
-                      {fmt(n.t)}
+                    <button className="link" onClick={() => seekOut(at)}>
+                      {fmt(at)}
                     </button>
                   )}
                   <span>{n.text}</span>
@@ -712,7 +720,8 @@ const Editor: React.FC<{ cfg: CloudConfig }> = ({ cfg }) => {
                     ×
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
             <button className="primary" disabled={(!notes.length && !(cloud && !hasModel)) || job?.status === "running"} onClick={() => sendNotes()}>
               {cloud && !hasModel ? "Connect your AI model to send notes" : `Send ${notes.length || ""} note${notes.length === 1 ? "" : "s"} to ${cloud ? "your AI" : "Claude"}`}

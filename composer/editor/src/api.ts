@@ -183,7 +183,8 @@ export const api = {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   },
-  notes: (pid: string, notes: { t: number; text: string }[]) =>
+  /** `t` is the moment a note is about, in reel seconds, or null when it is about the whole reel. */
+  notes: (pid: string, notes: { t: number | null; text: string }[]) =>
     af(`/api/projects/${pid}/notes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes }) }).then((r) =>
       j<{ job: string }>(r),
     ),

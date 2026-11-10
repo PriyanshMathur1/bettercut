@@ -1,7 +1,7 @@
 // Run: node --test tests/reel/*.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askNotes, groupOf, keepTab, RAIL, railFor, readWorkspace, STORAGE_KEY, TABS, toggleShape, writeWorkspace, type KeyStore } from "../../editor/src/workspace.ts";
+import { askNotes, fmtClock, groupOf, keepTab, LAST_REEL_KEY, RAIL, railFor, readWorkspace, STORAGE_KEY, TABS, toggleShape, withoutSent, writeWorkspace, type KeyStore } from "../../editor/src/workspace.ts";
 
 const memory = (init: Record<string, string> = {}): KeyStore & { data: Record<string, string> } => {
   const data = { ...init };
@@ -98,4 +98,26 @@ test("an unknown saved value means Simple", () => {
 test("blocked storage neither throws nor breaks the editor", () => {
   assert.equal(readWorkspace(broken), "simple");
   assert.doesNotThrow(() => writeWorkspace(broken, "pro"));
+});
+
+test("people who have used the editor before stay in Pro until they choose", () => {
+  assert.equal(readWorkspace(memory({ [LAST_REEL_KEY]: "my-reel" })), "pro"); // has opened a reel: the layout they know
+  assert.equal(readWorkspace(memory({ [LAST_REEL_KEY]: "" })), "simple"); // the key exists but no reel was ever opened
+  assert.equal(readWorkspace(memory({ [LAST_REEL_KEY]: "my-reel", [STORAGE_KEY]: "simple" })), "simple"); // a saved choice wins
+});
+
+test("a finished Ask removes only the notes it sent", () => {
+  const a = { t: 1, text: "cut this" };
+  const b = { t: null, text: "warmer colour" };
+  const sent = [a, b];
+  const pinnedMeanwhile = { t: 4, text: "cut this" }; // same words as a, pinned while the AI was working
+  assert.deepEqual(withoutSent([a, b, pinnedMeanwhile], sent), [pinnedMeanwhile]);
+  assert.deepEqual(withoutSent([a, b], sent), []);
+  assert.deepEqual(withoutSent([], sent), []);
+});
+
+test("fmtClock shows minutes, seconds and tenths", () => {
+  assert.equal(fmtClock(0), "0:00.0");
+  assert.equal(fmtClock(12.34), "0:12.3");
+  assert.equal(fmtClock(75.06), "1:15.1");
 });

@@ -69,13 +69,33 @@ export interface KeyStore {
   setItem(key: string, value: string): void;
 }
 
-/** The saved workspace. New users start in Simple; anything unreadable also means Simple. */
+/** Set by the editor whenever a reel is opened, so its presence means someone has used the editor before. */
+export const LAST_REEL_KEY = "rs.pid";
+
+/**
+ * The saved workspace. With no saved choice, new users start in Simple, while people who have used the
+ * editor before (it remembers their last reel) stay in Pro, the layout they know. Unreadable storage means Simple.
+ */
 export function readWorkspace(store: KeyStore | undefined): Workspace {
   try {
-    return store?.getItem(STORAGE_KEY) === "pro" ? "pro" : "simple";
+    const saved = store?.getItem(STORAGE_KEY);
+    if (saved === "pro" || saved === "simple") return saved;
+    return store?.getItem(LAST_REEL_KEY) ? "pro" : "simple";
   } catch {
     return "simple";
   }
+}
+
+/** A time as m:ss.s, as shown on notes, the playhead and the Pin button. */
+export const fmtClock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+
+/**
+ * The notes left after a send finishes: the ones that were sent are gone, and anything pinned while the AI
+ * was working stays, to go with the next Ask. Notes are matched by identity, so two notes with the same
+ * words are kept apart.
+ */
+export function withoutSent<N>(current: readonly N[], sent: readonly N[]): N[] {
+  return current.filter((n) => !sent.includes(n));
 }
 
 export function writeWorkspace(store: KeyStore | undefined, ws: Workspace): void {
