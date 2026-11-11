@@ -99,8 +99,10 @@ OpenAI-compatible endpoint.
 ## Pipeline mode: brief to finished video
 
 Ask Claude to make a whole video in stages, approving each one before the next starts. Pipelines (in
-`bettercut/pipelines/`): **talking-head** reel, **screen-demo**, **multicam** conversation, and **clip-factory** (many short
-clips from one long video). Each stage has a goal, a guide for Claude and a checklist: brief, rough cut, the pipeline's own
+`bettercut/pipelines/`): **talking-head** reel, **travel-montage** (scenery and moments cut to music), **screen-demo**,
+**multicam** conversation, and **clip-factory** (many short clips from one long video). Claude can look at the footage
+(frames as a labelled contact sheet) to pick shots when there are no words to go by, and add a music track from your
+computer so cuts land on the beat. Each stage has a goal, a guide for Claude and a checklist: brief, rough cut, the pipeline's own
 middle stages (captions, zooms, camera pass, finding moments), polish and export.
 
 In Claude Desktop pick a pipeline from the prompt menu, or just ask: "Use the talking-head pipeline on ~/Movies/take.mov:
